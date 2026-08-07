@@ -1,8 +1,7 @@
 #include "main_window.hpp"
 
 #include "../monitoring/cpu_provider.hpp"
-#include "../monitoring/simulated_providers.hpp"
-#include "../text_util.hpp"
+#include "../monitoring/nvidia_gpu_provider.hpp"
 
 #include <algorithm>
 #include <cmath>
@@ -30,12 +29,9 @@ constexpr wchar_t kWindowTitle[] = L"Performance Monitor";
 MainWindow::MainWindow(
     HINSTANCE instance,
     ID2D1Factory* d2d_factory,
-    IDWriteFactory* dwrite_factory,
-    const NvmlProbeResult& nvml_result)
+    IDWriteFactory* dwrite_factory)
     : instance_(instance),
-      renderer_(d2d_factory, dwrite_factory),
-      gpu_name_(Utf8ToWide(nvml_result.gpu_name)),
-      gpu_status_(Utf8ToWide(nvml_result.status)) {}
+      renderer_(d2d_factory, dwrite_factory) {}
 
 MainWindow::~MainWindow() {
     StopSampler();
@@ -154,9 +150,7 @@ void MainWindow::Paint() {
             window_,
             dpi_,
             ui_state_,
-            performance,
-            gpu_name_,
-            gpu_status_);
+            performance);
     } catch (...) {
         renderer_.DiscardDeviceResources();
     }
@@ -387,10 +381,8 @@ void MainWindow::StartSampler() {
             }
         });
 
-    // Phase 4 uses the real Windows CPU provider. GPU data remains simulated
-    // until the NVML metrics provider replaces it in Phase 5.
     sampler_->AddProvider(std::make_unique<monitoring::CpuProvider>());
-    sampler_->AddProvider(std::make_unique<monitoring::SimulatedGpuProvider>());
+    sampler_->AddProvider(std::make_unique<monitoring::NvidiaGpuProvider>());
     sampler_->Start();
 }
 

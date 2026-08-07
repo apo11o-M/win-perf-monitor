@@ -15,6 +15,8 @@ struct GraphStyle {
     ID2D1Brush* line = nullptr;
     ID2D1Brush* fill = nullptr;
     float line_width = 1.5F;
+    int horizontal_divisions = 4;
+    int vertical_divisions = 6;
 };
 
 void DrawGraph(

@@ -5,7 +5,6 @@
 #include "../model/history_store.hpp"
 #include "../monitoring/sample_mailbox.hpp"
 #include "../monitoring/sampler.hpp"
-#include "../nvml_loader.hpp"
 #include "../ui/layout.hpp"
 #include "../ui/renderer.hpp"
 #include "../ui/ui_state.hpp"
@@ -23,8 +22,7 @@ public:
     MainWindow(
         HINSTANCE instance,
         ID2D1Factory* d2d_factory,
-        IDWriteFactory* dwrite_factory,
-        const NvmlProbeResult& nvml_result);
+        IDWriteFactory* dwrite_factory);
     ~MainWindow();
 
     MainWindow(const MainWindow&) = delete;
@@ -91,8 +89,6 @@ private:
     monitoring::SampleMailbox sample_mailbox_{};
     std::unique_ptr<monitoring::Sampler> sampler_{};
 
-    std::wstring gpu_name_;
-    std::wstring gpu_status_;
 };
 
 } // namespace perfmon

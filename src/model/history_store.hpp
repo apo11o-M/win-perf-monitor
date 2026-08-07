@@ -38,6 +38,7 @@ struct PerformanceSnapshot {
     CpuInfo cpu_info{};
     MetricSeriesSnapshot gpu_total{};
     MetricSeriesSnapshot gpu_memory{};
+    GpuInfo gpu_info{};
 };
 
 class MetricHistory {
@@ -71,6 +72,7 @@ private:
     MetricHistory gpu_total_;
     MetricHistory gpu_memory_;
     CpuInfo latest_cpu_info_{};
+    GpuInfo latest_gpu_info_{};
     SampleTime latest_timestamp_{};
     bool has_sample_ = false;
 };

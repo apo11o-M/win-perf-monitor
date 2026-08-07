@@ -77,6 +77,71 @@ std::wstring FormatGigahertz(const model::MetricValue& metric) {
     return stream.str();
 }
 
+double NormalizeNominalVramCapacityGiB(double raw_capacity_gib) noexcept {
+    if (!std::isfinite(raw_capacity_gib) || raw_capacity_gib <= 0.0) {
+        return raw_capacity_gib;
+    }
+
+    // Windows/NVML may expose slightly less memory than the product's nominal
+    // framebuffer size because part of VRAM is reserved by WDDM, firmware, or
+    // the display driver. The UI is intended to show the advertised capacity,
+    // not measurement-grade allocatable bytes, so round the display value up
+    // to the next whole GiB. Subtract a small epsilon first so an exact whole
+    // capacity affected only by floating-point noise does not jump by 1 GiB.
+    constexpr double kWholeGiBEpsilon = 0.05;
+    return std::ceil(raw_capacity_gib - kWholeGiBEpsilon);
+}
+
+std::wstring FormatVram(const model::GpuInfo& info) {
+    if (!info.memory_used_gib.HasValue() || !info.memory_total_gib.HasValue()) {
+        return L"—";
+    }
+
+    const double display_total_gib =
+        NormalizeNominalVramCapacityGiB(info.memory_total_gib.value);
+
+    std::wostringstream stream;
+    stream << std::fixed << std::setprecision(1)
+           << info.memory_used_gib.value << L" / "
+           << display_total_gib << L" GB";
+    return stream.str();
+}
+
+std::wstring FormatVramUsed(const model::GpuInfo& info) {
+    if (!info.memory_used_gib.HasValue()) {
+        return L"—";
+    }
+
+    std::wostringstream stream;
+    stream << std::fixed << std::setprecision(1)
+           << info.memory_used_gib.value << L" GB";
+    return stream.str();
+}
+
+std::wstring FormatTemperature(const model::MetricValue& metric) {
+    if (!metric.HasValue()) {
+        return L"—";
+    }
+    return std::to_wstring(static_cast<long long>(std::lround(metric.value))) + L" °C";
+}
+
+std::wstring FormatPower(const model::MetricValue& metric) {
+    if (!metric.HasValue()) {
+        return L"—";
+    }
+
+    std::wostringstream stream;
+    stream << std::fixed << std::setprecision(1) << metric.value << L" W";
+    return stream.str();
+}
+
+std::wstring FormatMegahertz(const model::MetricValue& metric) {
+    if (!metric.HasValue()) {
+        return L"—";
+    }
+    return std::to_wstring(static_cast<long long>(std::lround(metric.value))) + L" MHz";
+}
+
 std::wstring FormatUptime(const std::optional<std::chrono::milliseconds>& uptime) {
     if (!uptime.has_value()) {
         return L"—";
@@ -105,6 +170,16 @@ std::wstring CpuDisplayName(const model::PerformanceSnapshot& performance) {
         : performance.cpu_info.processor_name;
 }
 
+std::wstring GpuDisplayName(const model::PerformanceSnapshot& performance) {
+    if (!performance.gpu_info.gpu_name.empty()) {
+        return performance.gpu_info.gpu_name;
+    }
+    if (!performance.gpu_info.provider_status.empty()) {
+        return performance.gpu_info.provider_status;
+    }
+    return L"NVIDIA GPU";
+}
+
 } // namespace
 
 Renderer::Renderer(ID2D1Factory* d2d_factory, IDWriteFactory* dwrite_factory)
@@ -119,12 +194,12 @@ void Renderer::CreateTextFormats() {
     card_label_format_ = CreateTextFormat(dwrite_factory_.Get(), 13.0F, DWRITE_FONT_WEIGHT_SEMI_BOLD);
     card_value_format_ = CreateTextFormat(dwrite_factory_.Get(), 20.0F, DWRITE_FONT_WEIGHT_SEMI_BOLD);
     card_subtitle_format_ = CreateTextFormat(dwrite_factory_.Get(), 10.0F, DWRITE_FONT_WEIGHT_NORMAL);
-    detail_title_format_ = CreateTextFormat(dwrite_factory_.Get(), 25.0F, DWRITE_FONT_WEIGHT_SEMI_BOLD);
+    detail_title_format_ = CreateTextFormat(dwrite_factory_.Get(), 22.0F, DWRITE_FONT_WEIGHT_SEMI_BOLD);
     detail_subtitle_format_ = CreateTextFormat(dwrite_factory_.Get(), 12.0F, DWRITE_FONT_WEIGHT_NORMAL);
     ThrowIfFailed(
         detail_subtitle_format_->SetTextAlignment(DWRITE_TEXT_ALIGNMENT_TRAILING),
         "SetTextAlignment failed");
-    graph_label_format_ = CreateTextFormat(dwrite_factory_.Get(), 10.0F, DWRITE_FONT_WEIGHT_SEMI_BOLD);
+    graph_label_format_ = CreateTextFormat(dwrite_factory_.Get(), 11.5F, DWRITE_FONT_WEIGHT_SEMI_BOLD);
     logical_graph_label_format_ = CreateTextFormat(dwrite_factory_.Get(), 8.0F, DWRITE_FONT_WEIGHT_SEMI_BOLD);
     stat_label_format_ = CreateTextFormat(dwrite_factory_.Get(), 9.0F, DWRITE_FONT_WEIGHT_NORMAL);
     stat_value_format_ = CreateTextFormat(dwrite_factory_.Get(), 12.5F, DWRITE_FONT_WEIGHT_SEMI_BOLD);
@@ -209,9 +284,7 @@ void Renderer::Draw(
     HWND window,
     float dpi,
     const UiState& state,
-    const model::PerformanceSnapshot& performance,
-    const std::wstring& gpu_name,
-    const std::wstring& gpu_status) {
+    const model::PerformanceSnapshot& performance) {
     EnsureDeviceResources(window, dpi);
 
     render_target_->BeginDraw();
@@ -219,7 +292,7 @@ void Renderer::Draw(
     const Layout layout = CalculateLayout(client_size, state.IsExpanded());
 
     render_target_->Clear(D2D1::ColorF(0.052F, 0.063F, 0.085F, 1.0F));
-    DrawComponentRail(layout, state, performance, gpu_name);
+    DrawComponentRail(layout, state, performance);
 
     if (state.IsExpanded()) {
         render_target_->FillRectangle(layout.detail_pane, detail_brush_.Get());
@@ -232,7 +305,7 @@ void Renderer::Draw(
         if (state.selected == Component::Cpu) {
             DrawCpuDetail(layout.detail_pane, performance);
         } else if (state.selected == Component::Gpu) {
-            DrawGpuDetail(layout.detail_pane, performance, gpu_name, gpu_status);
+            DrawGpuDetail(layout.detail_pane, performance);
         }
     }
 
@@ -247,8 +320,7 @@ void Renderer::Draw(
 void Renderer::DrawComponentRail(
     const Layout& layout,
     const UiState& state,
-    const model::PerformanceSnapshot& performance,
-    const std::wstring& gpu_name) {
+    const model::PerformanceSnapshot& performance) {
     render_target_->FillRectangle(layout.component_rail, rail_brush_.Get());
 
     DrawComponentCard(
@@ -260,7 +332,7 @@ void Renderer::DrawComponentRail(
         L"CPU",
         CpuDisplayName(performance));
 
-    const std::wstring gpu_subtitle = gpu_name.empty() ? L"NVML unavailable" : gpu_name;
+    const std::wstring gpu_subtitle = GpuDisplayName(performance);
     DrawComponentCard(
         layout.gpu_card,
         Component::Gpu,
@@ -488,12 +560,10 @@ void Renderer::DrawCpuLogicalProcessorGrid(
 
 void Renderer::DrawGpuDetail(
     const D2D1_RECT_F& bounds,
-    const model::PerformanceSnapshot& performance,
-    const std::wstring& gpu_name,
-    const std::wstring& gpu_status) {
+    const model::PerformanceSnapshot& performance) {
     const float left = bounds.left + 22.0F;
     const float right = bounds.right - 22.0F;
-    const std::wstring& subtitle = gpu_name.empty() ? gpu_status : gpu_name;
+    const std::wstring subtitle = GpuDisplayName(performance);
 
     DrawTextBlock(
         L"GPU",
@@ -507,17 +577,24 @@ void Renderer::DrawGpuDetail(
         secondary_text_brush_.Get());
 
     DrawTextBlock(
-        L"GPU utilization",
+        L"GPU Utilization",
         D2D1::RectF(left, 54.0F, right - 55.0F, 70.0F),
         graph_label_format_.Get(),
         secondary_text_brush_.Get());
     DrawTextBlock(
-        L"100%",
-        D2D1::RectF(right - 55.0F, 54.0F, right, 70.0F),
+        FormatPercentage(performance.gpu_total.latest),
+        D2D1::RectF(right - 75.0F, 54.0F, right, 70.0F),
         detail_subtitle_format_.Get(),
         subtle_text_brush_.Get());
 
     const D2D1_RECT_F gpu_graph = D2D1::RectF(left, 73.0F, right, 238.0F);
+    GraphStyle gpu_utilization_style{
+        graph_background_brush_.Get(),
+        grid_brush_.Get(),
+        gpu_brush_.Get(),
+        gpu_fill_brush_.Get(),
+        1.0F};
+    gpu_utilization_style.horizontal_divisions = 5;
     DrawGraph(
         render_target_.Get(),
         d2d_factory_.Get(),
@@ -525,18 +602,19 @@ void Renderer::DrawGpuDetail(
         performance.gpu_total.samples,
         performance.window_start,
         performance.window_end,
-        GraphStyle{
-            graph_background_brush_.Get(),
-            grid_brush_.Get(),
-            gpu_brush_.Get(),
-            gpu_fill_brush_.Get(),
-            2.0F});
+        gpu_utilization_style);
+    render_target_->DrawRectangle(gpu_graph, separator_brush_.Get(), 1.0F);
 
     DrawTextBlock(
-        L"Dedicated GPU memory",
-        D2D1::RectF(left, 249.0F, right, 264.0F),
+        L"Dedicated GPU Memory",
+        D2D1::RectF(left, 249.0F, right - 85.0F, 264.0F),
         graph_label_format_.Get(),
         secondary_text_brush_.Get());
+    DrawTextBlock(
+        FormatVramUsed(performance.gpu_info),
+        D2D1::RectF(right - 85.0F, 249.0F, right, 264.0F),
+        detail_subtitle_format_.Get(),
+        subtle_text_brush_.Get());
     const D2D1_RECT_F vram_graph = D2D1::RectF(left, 267.0F, right, 311.0F);
     DrawGraph(
         render_target_.Get(),
@@ -550,39 +628,38 @@ void Renderer::DrawGpuDetail(
             grid_brush_.Get(),
             gpu_brush_.Get(),
             gpu_fill_brush_.Get(),
-            1.5F});
+            1.0F});
+    render_target_->DrawRectangle(vram_graph, separator_brush_.Get(), 1.0F);
 
     constexpr float stat_gap = 8.0F;
     const float stat_top = 329.0F;
     const float stat_bottom = 379.0F;
     const float stat_width = (right - left - (stat_gap * 4.0F)) / 5.0F;
 
-    const std::wstring utilization = FormatPercentage(performance.gpu_total.latest);
-    const std::wstring memory = FormatPercentage(performance.gpu_memory.latest);
     DrawCompactStat(
         D2D1::RectF(left, stat_top, left + stat_width, stat_bottom),
         L"Utilization",
-        utilization);
+        FormatPercentage(performance.gpu_total.latest));
     DrawCompactStat(
         D2D1::RectF(left + stat_width + stat_gap, stat_top,
                     left + (stat_width * 2.0F) + stat_gap, stat_bottom),
-        L"VRAM usage",
-        memory);
+        L"VRAM",
+        FormatVram(performance.gpu_info));
     DrawCompactStat(
         D2D1::RectF(left + (stat_width * 2.0F) + (stat_gap * 2.0F), stat_top,
                     left + (stat_width * 3.0F) + (stat_gap * 2.0F), stat_bottom),
         L"Temperature",
-        L"—");
+        FormatTemperature(performance.gpu_info.temperature_c));
     DrawCompactStat(
         D2D1::RectF(left + (stat_width * 3.0F) + (stat_gap * 3.0F), stat_top,
                     left + (stat_width * 4.0F) + (stat_gap * 3.0F), stat_bottom),
         L"Power",
-        L"—");
+        FormatPower(performance.gpu_info.power_w));
     DrawCompactStat(
         D2D1::RectF(left + (stat_width * 4.0F) + (stat_gap * 4.0F), stat_top,
                     right, stat_bottom),
-        L"Graphics clock",
-        L"—");
+        L"GPU clock",
+        FormatMegahertz(performance.gpu_info.graphics_clock_mhz));
 }
 
 void Renderer::DrawCompactStat(

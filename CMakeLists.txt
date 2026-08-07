@@ -1,7 +1,7 @@
 cmake_minimum_required(VERSION 3.25)
 
 project(PerformanceMonitor
-    VERSION 0.4.1
+    VERSION 0.5.0
     DESCRIPTION "Lightweight Win32 CPU/GPU performance monitor"
     LANGUAGES CXX RC
 )
@@ -37,11 +37,11 @@ add_executable(PerformanceMonitor WIN32
     src/monitoring/component_provider.hpp
     src/monitoring/cpu_provider.cpp
     src/monitoring/cpu_provider.hpp
+    src/monitoring/nvidia_gpu_provider.cpp
+    src/monitoring/nvidia_gpu_provider.hpp
     src/monitoring/sample_mailbox.hpp
     src/monitoring/sampler.cpp
     src/monitoring/sampler.hpp
-    src/monitoring/simulated_providers.cpp
-    src/monitoring/simulated_providers.hpp
 
     src/ui/ui_state.hpp
     src/ui/layout.cpp
@@ -51,8 +51,6 @@ add_executable(PerformanceMonitor WIN32
     src/ui/renderer.cpp
     src/ui/renderer.hpp
 
-    src/nvml_loader.cpp
-    src/nvml_loader.hpp
 
     "${CMAKE_CURRENT_BINARY_DIR}/generated/app.rc"
 )

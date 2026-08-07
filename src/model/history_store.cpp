@@ -80,6 +80,7 @@ void HistoryStore::Push(const SystemSample& sample) {
     }
 
     latest_cpu_info_ = sample.cpu.info;
+    latest_gpu_info_ = sample.gpu.info;
     latest_timestamp_ = sample.timestamp;
     has_sample_ = true;
 }
@@ -109,6 +110,7 @@ PerformanceSnapshot HistoryStore::Snapshot() const {
     result.cpu_info = latest_cpu_info_;
     result.gpu_total = gpu_total_.SnapshotSince(result.window_start);
     result.gpu_memory = gpu_memory_.SnapshotSince(result.window_start);
+    result.gpu_info = latest_gpu_info_;
 
     result.cpu_logical_processors.reserve(cpu_logical_processors_.size());
     for (const MetricHistory& history : cpu_logical_processors_) {

@@ -39,9 +39,26 @@ struct CpuSample {
     CpuInfo info{};
 };
 
+struct GpuInfo {
+    std::wstring gpu_name{};
+    std::wstring driver_version{};
+    std::wstring provider_status{};
+
+    MetricValue memory_used_gib{};
+    MetricValue memory_total_gib{};
+    MetricValue temperature_c{};
+    MetricValue power_w{};
+    MetricValue graphics_clock_mhz{};
+    MetricValue memory_clock_mhz{};
+};
+
 struct GpuSample {
     MetricValue total_utilization{};
+
+    // Percentage of dedicated framebuffer memory currently allocated. This is
+    // intentionally distinct from NVML's memory-activity utilization counter.
     MetricValue memory_utilization{};
+    GpuInfo info{};
 };
 
 struct SystemSample {

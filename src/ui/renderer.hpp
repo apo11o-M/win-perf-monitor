@@ -26,9 +26,7 @@ public:
         HWND window,
         float dpi,
         const UiState& state,
-        const model::PerformanceSnapshot& performance,
-        const std::wstring& gpu_name,
-        const std::wstring& gpu_status);
+        const model::PerformanceSnapshot& performance);
     void Resize(UINT width, UINT height);
     void SetDpi(float dpi);
     void DiscardDeviceResources() noexcept;
@@ -40,8 +38,7 @@ private:
     void DrawComponentRail(
         const Layout& layout,
         const UiState& state,
-        const model::PerformanceSnapshot& performance,
-        const std::wstring& gpu_name);
+        const model::PerformanceSnapshot& performance);
     void DrawComponentCard(
         const D2D1_RECT_F& bounds,
         Component component,
@@ -58,9 +55,7 @@ private:
         const model::PerformanceSnapshot& performance);
     void DrawGpuDetail(
         const D2D1_RECT_F& bounds,
-        const model::PerformanceSnapshot& performance,
-        const std::wstring& gpu_name,
-        const std::wstring& gpu_status);
+        const model::PerformanceSnapshot& performance);
     void DrawCompactStat(
         const D2D1_RECT_F& bounds,
         std::wstring_view label,

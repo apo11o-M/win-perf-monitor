@@ -1,8 +1,6 @@
 #include "application.hpp"
 
 #include "main_window.hpp"
-#include "../nvml_loader.hpp"
-
 #include <stdexcept>
 
 namespace perfmon {
@@ -49,12 +47,10 @@ int Application::Run(int show_command) {
     InitializeCom();
     InitializeGraphicsFactories();
 
-    const NvmlProbeResult nvml_result = ProbeNvml();
     MainWindow main_window(
         instance_,
         d2d_factory_.Get(),
-        dwrite_factory_.Get(),
-        nvml_result);
+        dwrite_factory_.Get());
     main_window.Create(show_command);
 
     MSG message{};

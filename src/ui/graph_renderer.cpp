@@ -36,13 +36,13 @@ namespace {
 void DrawGrid(
     ID2D1RenderTarget* render_target,
     const D2D1_RECT_F& bounds,
-    ID2D1Brush* grid_brush) {
-    if (grid_brush == nullptr) {
+    const GraphStyle& style) {
+    if (style.grid == nullptr) {
         return;
     }
 
-    constexpr int horizontal_divisions = 4;
-    constexpr int vertical_divisions = 6;
+    const int horizontal_divisions = std::max(style.horizontal_divisions, 1);
+    const int vertical_divisions = std::max(style.vertical_divisions, 1);
 
     for (int index = 1; index < horizontal_divisions; ++index) {
         const float ratio = static_cast<float>(index) /
@@ -51,7 +51,7 @@ void DrawGrid(
         render_target->DrawLine(
             D2D1::Point2F(bounds.left, y),
             D2D1::Point2F(bounds.right, y),
-            grid_brush,
+            style.grid,
             1.0F);
     }
 
@@ -62,7 +62,7 @@ void DrawGrid(
         render_target->DrawLine(
             D2D1::Point2F(x, bounds.top),
             D2D1::Point2F(x, bounds.bottom),
-            grid_brush,
+            style.grid,
             1.0F);
     }
 }
@@ -141,7 +141,7 @@ void DrawGraph(
     if (style.background != nullptr) {
         render_target->FillRectangle(bounds, style.background);
     }
-    DrawGrid(render_target, bounds, style.grid);
+    DrawGrid(render_target, bounds, style);
 
     if (samples.empty() || style.line == nullptr || window_end <= window_start) {
         return;
