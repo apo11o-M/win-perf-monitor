@@ -79,6 +79,7 @@ void HistoryStore::Push(const SystemSample& sample) {
         cpu_logical_processors_[index].Push(sample.timestamp, metric);
     }
 
+    latest_cpu_info_ = sample.cpu.info;
     latest_timestamp_ = sample.timestamp;
     has_sample_ = true;
 }
@@ -105,6 +106,7 @@ PerformanceSnapshot HistoryStore::Snapshot() const {
     result.window_end = latest_timestamp_;
     result.window_start = latest_timestamp_ - settings_.visible_duration;
     result.cpu_total = cpu_total_.SnapshotSince(result.window_start);
+    result.cpu_info = latest_cpu_info_;
     result.gpu_total = gpu_total_.SnapshotSince(result.window_start);
     result.gpu_memory = gpu_memory_.SnapshotSince(result.window_start);
 

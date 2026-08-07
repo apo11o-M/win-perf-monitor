@@ -3,7 +3,11 @@
 #include "graph_renderer.hpp"
 
 #include <chrono>
+#include <cstddef>
 #include <cmath>
+#include <iomanip>
+#include <optional>
+#include <sstream>
 #include <stdexcept>
 #include <string>
 
@@ -49,8 +53,56 @@ std::wstring FormatPercentage(const model::MetricValue& metric) {
     return std::to_wstring(static_cast<long long>(std::lround(metric.value))) + L"%";
 }
 
-std::wstring FormatDuration(std::chrono::seconds duration) {
-    return std::to_wstring(duration.count()) + L" seconds";
+std::wstring FormatCount(const std::optional<std::uint32_t>& value) {
+    if (!value.has_value()) {
+        return L"—";
+    }
+
+    std::wstring digits = std::to_wstring(*value);
+    for (std::ptrdiff_t index = static_cast<std::ptrdiff_t>(digits.size()) - 3;
+         index > 0;
+         index -= 3) {
+        digits.insert(static_cast<std::size_t>(index), 1, L',');
+    }
+    return digits;
+}
+
+std::wstring FormatGigahertz(const model::MetricValue& metric) {
+    if (!metric.HasValue()) {
+        return L"—";
+    }
+
+    std::wostringstream stream;
+    stream << std::fixed << std::setprecision(2) << metric.value << L" GHz";
+    return stream.str();
+}
+
+std::wstring FormatUptime(const std::optional<std::chrono::milliseconds>& uptime) {
+    if (!uptime.has_value()) {
+        return L"—";
+    }
+
+    const auto total_seconds = std::chrono::duration_cast<std::chrono::seconds>(*uptime).count();
+    const auto days = total_seconds / 86400;
+    const auto hours = (total_seconds / 3600) % 24;
+    const auto minutes = (total_seconds / 60) % 60;
+    const auto seconds = total_seconds % 60;
+
+    std::wostringstream stream;
+    if (days > 0) {
+        stream << days << L"d ";
+    }
+    stream << std::setfill(L'0')
+           << std::setw(2) << hours << L":"
+           << std::setw(2) << minutes << L":"
+           << std::setw(2) << seconds;
+    return stream.str();
+}
+
+std::wstring CpuDisplayName(const model::PerformanceSnapshot& performance) {
+    return performance.cpu_info.processor_name.empty()
+        ? L"Processor information unavailable"
+        : performance.cpu_info.processor_name;
 }
 
 } // namespace
@@ -73,6 +125,7 @@ void Renderer::CreateTextFormats() {
         detail_subtitle_format_->SetTextAlignment(DWRITE_TEXT_ALIGNMENT_TRAILING),
         "SetTextAlignment failed");
     graph_label_format_ = CreateTextFormat(dwrite_factory_.Get(), 10.0F, DWRITE_FONT_WEIGHT_SEMI_BOLD);
+    logical_graph_label_format_ = CreateTextFormat(dwrite_factory_.Get(), 8.0F, DWRITE_FONT_WEIGHT_SEMI_BOLD);
     stat_label_format_ = CreateTextFormat(dwrite_factory_.Get(), 9.0F, DWRITE_FONT_WEIGHT_NORMAL);
     stat_value_format_ = CreateTextFormat(dwrite_factory_.Get(), 12.5F, DWRITE_FONT_WEIGHT_SEMI_BOLD);
 }
@@ -205,7 +258,7 @@ void Renderer::DrawComponentRail(
         performance.cpu_total,
         performance,
         L"CPU",
-        L"AMD Ryzen 9 5900X");
+        CpuDisplayName(performance));
 
     const std::wstring gpu_subtitle = gpu_name.empty() ? L"NVML unavailable" : gpu_name;
     DrawComponentCard(
@@ -296,13 +349,13 @@ void Renderer::DrawCpuDetail(
         detail_title_format_.Get(),
         primary_text_brush_.Get());
     DrawTextBlock(
-        L"AMD Ryzen 9 5900X",
+        CpuDisplayName(performance),
         D2D1::RectF(left + 120.0F, 19.0F, right, 43.0F),
         detail_subtitle_format_.Get(),
         secondary_text_brush_.Get());
 
     DrawTextBlock(
-        L"Utilization",
+        L"Logical processors",
         D2D1::RectF(left, 54.0F, right - 55.0F, 70.0F),
         graph_label_format_.Get(),
         secondary_text_brush_.Get());
@@ -312,53 +365,125 @@ void Renderer::DrawCpuDetail(
         detail_subtitle_format_.Get(),
         subtle_text_brush_.Get());
 
-    const D2D1_RECT_F graph_bounds = D2D1::RectF(left, 73.0F, right, 301.0F);
-    DrawGraph(
-        render_target_.Get(),
-        d2d_factory_.Get(),
-        graph_bounds,
-        performance.cpu_total.samples,
-        performance.window_start,
-        performance.window_end,
-        GraphStyle{
-            graph_background_brush_.Get(),
-            grid_brush_.Get(),
-            cpu_brush_.Get(),
-            cpu_fill_brush_.Get(),
-            2.0F});
+    DrawCpuLogicalProcessorGrid(
+        D2D1::RectF(left, 73.0F, right, 318.0F),
+        performance);
 
-    const std::wstring duration_label = FormatDuration(performance.visible_duration);
-    DrawTextBlock(
-        duration_label,
-        D2D1::RectF(left, 304.0F, right, 319.0F),
-        graph_label_format_.Get(),
-        subtle_text_brush_.Get());
-
-    constexpr float stat_gap = 10.0F;
+    constexpr float stat_gap = 8.0F;
+    constexpr std::size_t stat_count = 5;
     const float stat_top = 329.0F;
     const float stat_bottom = 379.0F;
-    const float stat_width = (right - left - (stat_gap * 3.0F)) / 4.0F;
+    const float stat_width =
+        (right - left - (stat_gap * static_cast<float>(stat_count - 1))) /
+        static_cast<float>(stat_count);
 
-    const std::wstring utilization = FormatPercentage(performance.cpu_total.latest);
+    const auto stat_bounds = [&](std::size_t index) {
+        const float stat_left = left +
+            (static_cast<float>(index) * (stat_width + stat_gap));
+        return D2D1::RectF(
+            stat_left,
+            stat_top,
+            index + 1 == stat_count ? right : stat_left + stat_width,
+            stat_bottom);
+    };
+
     DrawCompactStat(
-        D2D1::RectF(left, stat_top, left + stat_width, stat_bottom),
+        stat_bounds(0),
         L"Utilization",
-        utilization);
+        FormatPercentage(performance.cpu_total.latest));
     DrawCompactStat(
-        D2D1::RectF(left + stat_width + stat_gap, stat_top,
-                    left + (stat_width * 2.0F) + stat_gap, stat_bottom),
-        L"Physical cores",
-        L"12");
+        stat_bounds(1),
+        L"Speed",
+        FormatGigahertz(performance.cpu_info.current_speed_ghz));
     DrawCompactStat(
-        D2D1::RectF(left + (stat_width * 2.0F) + (stat_gap * 2.0F), stat_top,
-                    left + (stat_width * 3.0F) + (stat_gap * 2.0F), stat_bottom),
-        L"Logical processors",
-        L"24");
+        stat_bounds(2),
+        L"Processes",
+        FormatCount(performance.cpu_info.process_count));
     DrawCompactStat(
-        D2D1::RectF(left + (stat_width * 3.0F) + (stat_gap * 3.0F), stat_top,
-                    right, stat_bottom),
-        L"System uptime",
-        L"—");
+        stat_bounds(3),
+        L"Threads",
+        FormatCount(performance.cpu_info.thread_count));
+    DrawCompactStat(
+        stat_bounds(4),
+        L"Uptime",
+        FormatUptime(performance.cpu_info.system_uptime));
+}
+
+void Renderer::DrawCpuLogicalProcessorGrid(
+    const D2D1_RECT_F& bounds,
+    const model::PerformanceSnapshot& performance) {
+    const std::size_t count = performance.cpu_logical_processors.size();
+    if (count == 0) {
+        DrawGraph(
+            render_target_.Get(),
+            d2d_factory_.Get(),
+            bounds,
+            performance.cpu_total.samples,
+            performance.window_start,
+            performance.window_end,
+            GraphStyle{
+                graph_background_brush_.Get(),
+                grid_brush_.Get(),
+                cpu_brush_.Get(),
+                cpu_fill_brush_.Get(),
+                2.0F});
+        return;
+    }
+
+    std::size_t columns = 1;
+    if (count <= 4) {
+        columns = count;
+    } else if (count <= 8) {
+        columns = 4;
+    } else if (count <= 16) {
+        columns = 4;
+    } else if (count <= 24) {
+        columns = 6;
+    } else if (count <= 32) {
+        columns = 8;
+    } else if (count <= 64) {
+        columns = 8;
+    } else {
+        columns = 12;
+    }
+
+    const std::size_t rows = (count + columns - 1) / columns;
+    constexpr float gap = 4.0F;
+    const float cell_width =
+        (bounds.right - bounds.left - (gap * static_cast<float>(columns - 1))) /
+        static_cast<float>(columns);
+    const float cell_height =
+        (bounds.bottom - bounds.top - (gap * static_cast<float>(rows - 1))) /
+        static_cast<float>(rows);
+
+    for (std::size_t index = 0; index < count; ++index) {
+        const std::size_t row = index / columns;
+        const std::size_t column = index % columns;
+        const float x = bounds.left + static_cast<float>(column) * (cell_width + gap);
+        const float y = bounds.top + static_cast<float>(row) * (cell_height + gap);
+        const D2D1_RECT_F cell = D2D1::RectF(x, y, x + cell_width, y + cell_height);
+
+        DrawGraph(
+            render_target_.Get(),
+            d2d_factory_.Get(),
+            cell,
+            performance.cpu_logical_processors[index].samples,
+            performance.window_start,
+            performance.window_end,
+            GraphStyle{
+                graph_background_brush_.Get(),
+                nullptr,
+                cpu_brush_.Get(),
+                nullptr,
+                1.0F});
+        render_target_->DrawRectangle(cell, separator_brush_.Get(), 1.0F);
+
+        DrawTextBlock(
+            std::to_wstring(index),
+            D2D1::RectF(cell.left + 3.0F, cell.top + 2.0F, cell.right - 2.0F, cell.top + 13.0F),
+            logical_graph_label_format_.Get(),
+            secondary_text_brush_.Get());
+    }
 }
 
 void Renderer::DrawGpuDetail(

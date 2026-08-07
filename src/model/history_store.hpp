@@ -35,6 +35,7 @@ struct PerformanceSnapshot {
 
     MetricSeriesSnapshot cpu_total{};
     std::vector<MetricSeriesSnapshot> cpu_logical_processors{};
+    CpuInfo cpu_info{};
     MetricSeriesSnapshot gpu_total{};
     MetricSeriesSnapshot gpu_memory{};
 };
@@ -69,6 +70,7 @@ private:
     std::vector<MetricHistory> cpu_logical_processors_{};
     MetricHistory gpu_total_;
     MetricHistory gpu_memory_;
+    CpuInfo latest_cpu_info_{};
     SampleTime latest_timestamp_{};
     bool has_sample_ = false;
 };

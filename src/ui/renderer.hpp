@@ -53,6 +53,9 @@ private:
     void DrawCpuDetail(
         const D2D1_RECT_F& bounds,
         const model::PerformanceSnapshot& performance);
+    void DrawCpuLogicalProcessorGrid(
+        const D2D1_RECT_F& bounds,
+        const model::PerformanceSnapshot& performance);
     void DrawGpuDetail(
         const D2D1_RECT_F& bounds,
         const model::PerformanceSnapshot& performance,
@@ -78,6 +81,7 @@ private:
     Microsoft::WRL::ComPtr<IDWriteTextFormat> detail_title_format_;
     Microsoft::WRL::ComPtr<IDWriteTextFormat> detail_subtitle_format_;
     Microsoft::WRL::ComPtr<IDWriteTextFormat> graph_label_format_;
+    Microsoft::WRL::ComPtr<IDWriteTextFormat> logical_graph_label_format_;
     Microsoft::WRL::ComPtr<IDWriteTextFormat> stat_label_format_;
     Microsoft::WRL::ComPtr<IDWriteTextFormat> stat_value_format_;
 

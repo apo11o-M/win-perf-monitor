@@ -19,3 +19,6 @@
 
 #include <windows.h>
 #include <windowsx.h>
+
+#include <pdh.h>
+#include <pdhmsg.h>

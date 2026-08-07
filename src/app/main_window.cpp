@@ -1,5 +1,6 @@
 #include "main_window.hpp"
 
+#include "../monitoring/cpu_provider.hpp"
 #include "../monitoring/simulated_providers.hpp"
 #include "../text_util.hpp"
 
@@ -386,10 +387,9 @@ void MainWindow::StartSampler() {
             }
         });
 
-    // Phase 3 deliberately uses simulated providers. Phase 4 can replace only
-    // the CPU provider while leaving the GPU simulation in place, and Phase 5
-    // can then replace the GPU provider independently.
-    sampler_->AddProvider(std::make_unique<monitoring::SimulatedCpuProvider>());
+    // Phase 4 uses the real Windows CPU provider. GPU data remains simulated
+    // until the NVML metrics provider replaces it in Phase 5.
+    sampler_->AddProvider(std::make_unique<monitoring::CpuProvider>());
     sampler_->AddProvider(std::make_unique<monitoring::SimulatedGpuProvider>());
     sampler_->Start();
 }
