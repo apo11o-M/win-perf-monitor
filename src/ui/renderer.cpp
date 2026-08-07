@@ -2,32 +2,13 @@
 
 #include "graph_renderer.hpp"
 
-#include <array>
+#include <chrono>
+#include <cmath>
 #include <stdexcept>
+#include <string>
 
 namespace perfmon::ui {
 namespace {
-
-constexpr std::array<float, 36> kCpuHistory{
-    18.0F, 21.0F, 20.0F, 32.0F, 45.0F, 38.0F, 25.0F, 29.0F, 31.0F,
-    52.0F, 61.0F, 54.0F, 42.0F, 36.0F, 27.0F, 33.0F, 46.0F, 41.0F,
-    35.0F, 24.0F, 28.0F, 34.0F, 31.0F, 39.0F, 55.0F, 62.0F, 49.0F,
-    44.0F, 38.0F, 35.0F, 40.0F, 47.0F, 45.0F, 39.0F, 41.0F, 42.0F,
-};
-
-constexpr std::array<float, 36> kGpuHistory{
-    4.0F, 5.0F, 5.0F, 8.0F, 12.0F, 25.0F, 37.0F, 32.0F, 44.0F,
-    58.0F, 69.0F, 63.0F, 49.0F, 42.0F, 31.0F, 26.0F, 21.0F, 19.0F,
-    16.0F, 12.0F, 9.0F, 11.0F, 14.0F, 18.0F, 20.0F, 24.0F, 29.0F,
-    27.0F, 24.0F, 22.0F, 19.0F, 18.0F, 16.0F, 18.0F, 16.0F, 17.0F,
-};
-
-constexpr std::array<float, 36> kVramHistory{
-    32.0F, 32.0F, 33.0F, 33.0F, 34.0F, 35.0F, 36.0F, 38.0F, 41.0F,
-    43.0F, 45.0F, 47.0F, 48.0F, 49.0F, 49.0F, 50.0F, 50.0F, 50.0F,
-    51.0F, 51.0F, 51.0F, 52.0F, 52.0F, 52.0F, 51.0F, 51.0F, 50.0F,
-    50.0F, 49.0F, 49.0F, 49.0F, 48.0F, 48.0F, 48.0F, 48.0F, 48.0F,
-};
 
 void ThrowIfFailed(HRESULT result, const char* operation) {
     if (FAILED(result)) {
@@ -59,6 +40,17 @@ Microsoft::WRL::ComPtr<IDWriteTextFormat> CreateTextFormat(
 
 D2D1_ROUNDED_RECT Rounded(const D2D1_RECT_F& rect, float radius = 8.0F) noexcept {
     return D2D1_ROUNDED_RECT{rect, radius, radius};
+}
+
+std::wstring FormatPercentage(const model::MetricValue& metric) {
+    if (!metric.HasValue()) {
+        return L"—";
+    }
+    return std::to_wstring(static_cast<long long>(std::lround(metric.value))) + L"%";
+}
+
+std::wstring FormatDuration(std::chrono::seconds duration) {
+    return std::to_wstring(duration.count()) + L" seconds";
 }
 
 } // namespace
@@ -164,6 +156,7 @@ void Renderer::Draw(
     HWND window,
     float dpi,
     const UiState& state,
+    const model::PerformanceSnapshot& performance,
     const std::wstring& gpu_name,
     const std::wstring& gpu_status) {
     EnsureDeviceResources(window, dpi);
@@ -173,7 +166,7 @@ void Renderer::Draw(
     const Layout layout = CalculateLayout(client_size, state.IsExpanded());
 
     render_target_->Clear(D2D1::ColorF(0.052F, 0.063F, 0.085F, 1.0F));
-    DrawComponentRail(layout, state, gpu_name);
+    DrawComponentRail(layout, state, performance, gpu_name);
 
     if (state.IsExpanded()) {
         render_target_->FillRectangle(layout.detail_pane, detail_brush_.Get());
@@ -184,9 +177,9 @@ void Renderer::Draw(
             1.0F);
 
         if (state.selected == Component::Cpu) {
-            DrawCpuDetail(layout.detail_pane);
+            DrawCpuDetail(layout.detail_pane, performance);
         } else if (state.selected == Component::Gpu) {
-            DrawGpuDetail(layout.detail_pane, gpu_name, gpu_status);
+            DrawGpuDetail(layout.detail_pane, performance, gpu_name, gpu_status);
         }
     }
 
@@ -201,6 +194,7 @@ void Renderer::Draw(
 void Renderer::DrawComponentRail(
     const Layout& layout,
     const UiState& state,
+    const model::PerformanceSnapshot& performance,
     const std::wstring& gpu_name) {
     render_target_->FillRectangle(layout.component_rail, rail_brush_.Get());
 
@@ -208,8 +202,9 @@ void Renderer::DrawComponentRail(
         layout.cpu_card,
         Component::Cpu,
         state,
+        performance.cpu_total,
+        performance,
         L"CPU",
-        L"42%",
         L"AMD Ryzen 9 5900X");
 
     const std::wstring gpu_subtitle = gpu_name.empty() ? L"NVML unavailable" : gpu_name;
@@ -217,8 +212,9 @@ void Renderer::DrawComponentRail(
         layout.gpu_card,
         Component::Gpu,
         state,
+        performance.gpu_total,
+        performance,
         L"GPU",
-        L"17%",
         gpu_subtitle);
 }
 
@@ -226,8 +222,9 @@ void Renderer::DrawComponentCard(
     const D2D1_RECT_F& bounds,
     Component component,
     const UiState& state,
+    const model::MetricSeriesSnapshot& series,
+    const model::PerformanceSnapshot& performance,
     std::wstring_view title,
-    std::wstring_view value,
     std::wstring_view subtitle) {
     ID2D1Brush* background = card_brush_.Get();
     if (state.selected == component) {
@@ -241,10 +238,15 @@ void Renderer::DrawComponentCard(
     ID2D1SolidColorBrush* accent = component == Component::Cpu
         ? cpu_brush_.Get()
         : gpu_brush_.Get();
+    ID2D1Brush* fill = component == Component::Cpu
+        ? static_cast<ID2D1Brush*>(cpu_fill_brush_.Get())
+        : static_cast<ID2D1Brush*>(gpu_fill_brush_.Get());
+
     render_target_->FillRoundedRectangle(
         Rounded(D2D1::RectF(bounds.left, bounds.top, bounds.left + 4.0F, bounds.bottom), 2.0F),
         accent);
 
+    const std::wstring value = FormatPercentage(series.latest);
     DrawTextBlock(
         title,
         D2D1::RectF(bounds.left + 12.0F, bounds.top + 8.0F, bounds.left + 70.0F, bounds.top + 28.0F),
@@ -261,18 +263,18 @@ void Renderer::DrawComponentCard(
         bounds.top + 11.0F,
         bounds.right - 9.0F,
         bounds.bottom - 21.0F);
-    const bool is_cpu = component == Component::Cpu;
     DrawGraph(
         render_target_.Get(),
         d2d_factory_.Get(),
         graph_bounds,
-        is_cpu ? std::span<const float>(kCpuHistory) : std::span<const float>(kGpuHistory),
+        series.samples,
+        performance.window_start,
+        performance.window_end,
         GraphStyle{
             graph_background_brush_.Get(),
             grid_brush_.Get(),
             accent,
-            is_cpu ? static_cast<ID2D1Brush*>(cpu_fill_brush_.Get())
-                   : static_cast<ID2D1Brush*>(gpu_fill_brush_.Get()),
+            fill,
             1.5F});
 
     DrawTextBlock(
@@ -282,11 +284,12 @@ void Renderer::DrawComponentCard(
         secondary_text_brush_.Get());
 }
 
-void Renderer::DrawCpuDetail(const D2D1_RECT_F& bounds) {
+void Renderer::DrawCpuDetail(
+    const D2D1_RECT_F& bounds,
+    const model::PerformanceSnapshot& performance) {
     const float left = bounds.left + 22.0F;
     const float right = bounds.right - 22.0F;
 
-    // Keep the header to a single row so most vertical space belongs to the graph.
     DrawTextBlock(
         L"CPU",
         D2D1::RectF(left, 15.0F, left + 110.0F, 48.0F),
@@ -314,7 +317,9 @@ void Renderer::DrawCpuDetail(const D2D1_RECT_F& bounds) {
         render_target_.Get(),
         d2d_factory_.Get(),
         graph_bounds,
-        kCpuHistory,
+        performance.cpu_total.samples,
+        performance.window_start,
+        performance.window_end,
         GraphStyle{
             graph_background_brush_.Get(),
             grid_brush_.Get(),
@@ -322,8 +327,9 @@ void Renderer::DrawCpuDetail(const D2D1_RECT_F& bounds) {
             cpu_fill_brush_.Get(),
             2.0F});
 
+    const std::wstring duration_label = FormatDuration(performance.visible_duration);
     DrawTextBlock(
-        L"60 seconds",
+        duration_label,
         D2D1::RectF(left, 304.0F, right, 319.0F),
         graph_label_format_.Get(),
         subtle_text_brush_.Get());
@@ -333,10 +339,11 @@ void Renderer::DrawCpuDetail(const D2D1_RECT_F& bounds) {
     const float stat_bottom = 379.0F;
     const float stat_width = (right - left - (stat_gap * 3.0F)) / 4.0F;
 
+    const std::wstring utilization = FormatPercentage(performance.cpu_total.latest);
     DrawCompactStat(
         D2D1::RectF(left, stat_top, left + stat_width, stat_bottom),
         L"Utilization",
-        L"42%");
+        utilization);
     DrawCompactStat(
         D2D1::RectF(left + stat_width + stat_gap, stat_top,
                     left + (stat_width * 2.0F) + stat_gap, stat_bottom),
@@ -351,11 +358,12 @@ void Renderer::DrawCpuDetail(const D2D1_RECT_F& bounds) {
         D2D1::RectF(left + (stat_width * 3.0F) + (stat_gap * 3.0F), stat_top,
                     right, stat_bottom),
         L"System uptime",
-        L"3:42:18");
+        L"—");
 }
 
 void Renderer::DrawGpuDetail(
     const D2D1_RECT_F& bounds,
+    const model::PerformanceSnapshot& performance,
     const std::wstring& gpu_name,
     const std::wstring& gpu_status) {
     const float left = bounds.left + 22.0F;
@@ -389,7 +397,9 @@ void Renderer::DrawGpuDetail(
         render_target_.Get(),
         d2d_factory_.Get(),
         gpu_graph,
-        kGpuHistory,
+        performance.gpu_total.samples,
+        performance.window_start,
+        performance.window_end,
         GraphStyle{
             graph_background_brush_.Get(),
             grid_brush_.Get(),
@@ -407,7 +417,9 @@ void Renderer::DrawGpuDetail(
         render_target_.Get(),
         d2d_factory_.Get(),
         vram_graph,
-        kVramHistory,
+        performance.gpu_memory.samples,
+        performance.window_start,
+        performance.window_end,
         GraphStyle{
             graph_background_brush_.Get(),
             grid_brush_.Get(),
@@ -420,30 +432,32 @@ void Renderer::DrawGpuDetail(
     const float stat_bottom = 379.0F;
     const float stat_width = (right - left - (stat_gap * 4.0F)) / 5.0F;
 
+    const std::wstring utilization = FormatPercentage(performance.gpu_total.latest);
+    const std::wstring memory = FormatPercentage(performance.gpu_memory.latest);
     DrawCompactStat(
         D2D1::RectF(left, stat_top, left + stat_width, stat_bottom),
         L"Utilization",
-        L"17%");
+        utilization);
     DrawCompactStat(
         D2D1::RectF(left + stat_width + stat_gap, stat_top,
                     left + (stat_width * 2.0F) + stat_gap, stat_bottom),
-        L"VRAM",
-        L"5.8 / 12 GB");
+        L"VRAM usage",
+        memory);
     DrawCompactStat(
         D2D1::RectF(left + (stat_width * 2.0F) + (stat_gap * 2.0F), stat_top,
                     left + (stat_width * 3.0F) + (stat_gap * 2.0F), stat_bottom),
         L"Temperature",
-        L"48 C");
+        L"—");
     DrawCompactStat(
         D2D1::RectF(left + (stat_width * 3.0F) + (stat_gap * 3.0F), stat_top,
                     left + (stat_width * 4.0F) + (stat_gap * 3.0F), stat_bottom),
         L"Power",
-        L"86 W");
+        L"—");
     DrawCompactStat(
         D2D1::RectF(left + (stat_width * 4.0F) + (stat_gap * 4.0F), stat_top,
                     right, stat_bottom),
         L"Graphics clock",
-        L"2,100 MHz");
+        L"—");
 }
 
 void Renderer::DrawCompactStat(

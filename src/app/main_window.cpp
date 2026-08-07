@@ -1,10 +1,14 @@
 #include "main_window.hpp"
 
+#include "../monitoring/simulated_providers.hpp"
 #include "../text_util.hpp"
 
 #include <algorithm>
 #include <cmath>
+#include <memory>
+#include <optional>
 #include <stdexcept>
+#include <utility>
 
 namespace perfmon {
 namespace {
@@ -31,6 +35,10 @@ MainWindow::MainWindow(
       renderer_(d2d_factory, dwrite_factory),
       gpu_name_(Utf8ToWide(nvml_result.gpu_name)),
       gpu_status_(Utf8ToWide(nvml_result.status)) {}
+
+MainWindow::~MainWindow() {
+    StopSampler();
+}
 
 void MainWindow::Create(int show_command) {
     RegisterWindowClass();
@@ -66,6 +74,7 @@ void MainWindow::Create(int show_command) {
 
     ShowWindow(window_, show_command);
     UpdateWindow(window_);
+    StartSampler();
 }
 
 void MainWindow::RegisterWindowClass() const {
@@ -139,7 +148,14 @@ void MainWindow::Paint() {
     BeginPaint(window_, &paint);
 
     try {
-        renderer_.Draw(window_, dpi_, ui_state_, gpu_name_, gpu_status_);
+        const model::PerformanceSnapshot performance = history_store_.Snapshot();
+        renderer_.Draw(
+            window_,
+            dpi_,
+            ui_state_,
+            performance,
+            gpu_name_,
+            gpu_status_);
     } catch (...) {
         renderer_.DiscardDeviceResources();
     }
@@ -357,6 +373,44 @@ void MainWindow::HandleDpiChanged(WPARAM w_param, LPARAM l_param) {
     // anchor and must survive automatic DPI/edge adjustments.
 }
 
+void MainWindow::StartSampler() {
+    if (sampler_) {
+        return;
+    }
+
+    sampler_ = std::make_unique<monitoring::Sampler>(
+        history_store_.Settings().sampling_interval,
+        [this](model::SystemSample sample) {
+            if (sample_mailbox_.Publish(std::move(sample))) {
+                (void)PostMessageW(window_, kSampleReadyMessage, 0, 0);
+            }
+        });
+
+    // Phase 3 deliberately uses simulated providers. Phase 4 can replace only
+    // the CPU provider while leaving the GPU simulation in place, and Phase 5
+    // can then replace the GPU provider independently.
+    sampler_->AddProvider(std::make_unique<monitoring::SimulatedCpuProvider>());
+    sampler_->AddProvider(std::make_unique<monitoring::SimulatedGpuProvider>());
+    sampler_->Start();
+}
+
+void MainWindow::StopSampler() noexcept {
+    if (sampler_) {
+        sampler_->Stop();
+        sampler_.reset();
+    }
+}
+
+void MainWindow::HandleSampleReady() {
+    std::optional<model::SystemSample> sample = sample_mailbox_.ConsumeLatest();
+    if (!sample.has_value()) {
+        return;
+    }
+
+    history_store_.Push(*sample);
+    InvalidateRect(window_, nullptr, FALSE);
+}
+
 void MainWindow::ShowContextMenu(POINT screen_point) {
     HMENU menu = CreatePopupMenu();
     if (menu == nullptr) {
@@ -382,6 +436,10 @@ void MainWindow::ShowContextMenu(POINT screen_point) {
 
 LRESULT MainWindow::HandleMessage(UINT message, WPARAM w_param, LPARAM l_param) {
     switch (message) {
+    case kSampleReadyMessage:
+        HandleSampleReady();
+        return 0;
+
     case WM_PAINT:
         Paint();
         return 0;
@@ -457,6 +515,7 @@ LRESULT MainWindow::HandleMessage(UINT message, WPARAM w_param, LPARAM l_param) 
         return 0;
 
     case WM_DESTROY:
+        StopSampler();
         PostQuitMessage(0);
         return 0;
 

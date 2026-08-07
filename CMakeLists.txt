@@ -1,7 +1,7 @@
 cmake_minimum_required(VERSION 3.25)
 
 project(PerformanceMonitor
-    VERSION 0.2.0
+    VERSION 0.3.0
     DESCRIPTION "Lightweight Win32 CPU/GPU performance monitor"
     LANGUAGES CXX RC
 )
@@ -28,6 +28,19 @@ add_executable(PerformanceMonitor WIN32
     src/app/main_window.cpp
     src/app/main_window.hpp
 
+    src/model/metric_value.hpp
+    src/model/system_sample.hpp
+    src/model/history_buffer.hpp
+    src/model/history_store.cpp
+    src/model/history_store.hpp
+
+    src/monitoring/component_provider.hpp
+    src/monitoring/sample_mailbox.hpp
+    src/monitoring/sampler.cpp
+    src/monitoring/sampler.hpp
+    src/monitoring/simulated_providers.cpp
+    src/monitoring/simulated_providers.hpp
+
     src/ui/ui_state.hpp
     src/ui/layout.cpp
     src/ui/layout.hpp
@@ -40,11 +53,6 @@ add_executable(PerformanceMonitor WIN32
     src/nvml_loader.hpp
 
     "${CMAKE_CURRENT_BINARY_DIR}/generated/app.rc"
-)
-
-set_property(
-    TARGET PerformanceMonitor
-    PROPERTY INTERPROCEDURAL_OPTIMIZATION_RELEASE TRUE
 )
 
 set_target_properties(PerformanceMonitor PROPERTIES
@@ -71,11 +79,10 @@ if(MSVC)
         /utf-8
     )
 
-    # Our app.rc already embeds RT_MANIFEST resource #1.
-    # Prevent MSVC from generating another one.
-    target_link_options(PerformanceMonitor PRIVATE
-        /MANIFEST:NO
-    )
+    # app.rc is the single source of the embedded application manifest.
+    # Disable the linker's automatic manifest generation to avoid duplicate
+    # type:MANIFEST/name:1 resources (CVT1100/LNK1123).
+    target_link_options(PerformanceMonitor PRIVATE /MANIFEST:NO)
 endif()
 
 # Native Windows graphics/windowing libraries. These are provided by Windows.
@@ -120,6 +127,19 @@ else()
             "probing will be disabled. Install the NVIDIA CUDA Toolkit or set CUDA_PATH."
         )
     endif()
+endif()
+
+option(PERFMON_BUILD_TESTS "Build lightweight model tests" OFF)
+if(PERFMON_BUILD_TESTS)
+    enable_testing()
+    add_executable(PerformanceMonitorHistoryTests
+        tests/history_buffer_tests.cpp
+    )
+    target_compile_features(PerformanceMonitorHistoryTests PRIVATE cxx_std_20)
+    if(MSVC)
+        target_compile_options(PerformanceMonitorHistoryTests PRIVATE /W4 /permissive- /EHsc /utf-8)
+    endif()
+    add_test(NAME history_buffer COMMAND PerformanceMonitorHistoryTests)
 endif()
 
 install(TARGETS PerformanceMonitor RUNTIME DESTINATION .)

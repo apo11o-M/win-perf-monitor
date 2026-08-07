@@ -1,5 +1,6 @@
 #pragma once
 
+#include "../model/history_store.hpp"
 #include "../win32_headers.hpp"
 
 #include <d2d1.h>
@@ -20,7 +21,9 @@ void DrawGraph(
     ID2D1RenderTarget* render_target,
     ID2D1Factory* factory,
     const D2D1_RECT_F& bounds,
-    std::span<const float> values,
+    std::span<const model::TimestampedMetric> samples,
+    model::SampleTime window_start,
+    model::SampleTime window_end,
     const GraphStyle& style);
 
 } // namespace perfmon::ui

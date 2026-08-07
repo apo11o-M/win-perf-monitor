@@ -2,6 +2,9 @@
 
 #include "../win32_headers.hpp"
 
+#include "../model/history_store.hpp"
+#include "../monitoring/sample_mailbox.hpp"
+#include "../monitoring/sampler.hpp"
 #include "../nvml_loader.hpp"
 #include "../ui/layout.hpp"
 #include "../ui/renderer.hpp"
@@ -10,6 +13,7 @@
 #include <d2d1.h>
 #include <dwrite.h>
 
+#include <memory>
 #include <string>
 
 namespace perfmon {
@@ -21,6 +25,7 @@ public:
         ID2D1Factory* d2d_factory,
         IDWriteFactory* dwrite_factory,
         const NvmlProbeResult& nvml_result);
+    ~MainWindow();
 
     MainWindow(const MainWindow&) = delete;
     MainWindow& operator=(const MainWindow&) = delete;
@@ -29,6 +34,7 @@ public:
 
 private:
     static constexpr UINT_PTR kExitMenuId = 1;
+    static constexpr UINT kSampleReadyMessage = WM_APP + 1;
 
     void RegisterWindowClass() const;
     void Paint();
@@ -42,6 +48,10 @@ private:
     void SetWindowRectAt(POINT position, float logical_width, float logical_height);
     void DragWindowFromClientArea();
     void HandleDpiChanged(WPARAM w_param, LPARAM l_param);
+
+    void StartSampler();
+    void StopSampler() noexcept;
+    void HandleSampleReady();
 
     [[nodiscard]] ui::Layout CurrentLayout() const noexcept;
     [[nodiscard]] D2D1_POINT_2F ClientPixelsToDip(POINT point) const noexcept;
@@ -61,6 +71,7 @@ private:
     HINSTANCE instance_ = nullptr;
     HWND window_ = nullptr;
     float dpi_ = 96.0F;
+
     struct ExpansionState {
         bool active = false;
         bool moved_while_expanded = false;
@@ -73,6 +84,13 @@ private:
 
     ui::UiState ui_state_{};
     ui::Renderer renderer_;
+
+    // History is owned and mutated only by the UI thread. The sampling thread
+    // communicates through a bounded one-slot mailbox and a WM_APP message.
+    model::HistoryStore history_store_{};
+    monitoring::SampleMailbox sample_mailbox_{};
+    std::unique_ptr<monitoring::Sampler> sampler_{};
+
     std::wstring gpu_name_;
     std::wstring gpu_status_;
 };

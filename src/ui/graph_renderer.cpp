@@ -1,6 +1,7 @@
 #include "graph_renderer.hpp"
 
 #include <algorithm>
+#include <chrono>
 #include <vector>
 
 namespace perfmon::ui {
@@ -8,15 +9,24 @@ namespace {
 
 [[nodiscard]] D2D1_POINT_2F SamplePoint(
     const D2D1_RECT_F& bounds,
-    std::size_t index,
-    std::size_t sample_count,
-    float value) noexcept {
+    const model::TimestampedMetric& sample,
+    model::SampleTime window_start,
+    model::SampleTime window_end) noexcept {
     const float width = bounds.right - bounds.left;
     const float height = bounds.bottom - bounds.top;
-    const float normalized_x = sample_count > 1
-        ? static_cast<float>(index) / static_cast<float>(sample_count - 1)
-        : 1.0F;
-    const float normalized_value = std::clamp(value, 0.0F, 100.0F) / 100.0F;
+
+    const auto window = window_end - window_start;
+    const auto offset = sample.timestamp - window_start;
+    float normalized_x = 1.0F;
+    if (window > model::SampleClock::duration::zero()) {
+        normalized_x = static_cast<float>(
+            std::chrono::duration<double>(offset).count() /
+            std::chrono::duration<double>(window).count());
+    }
+    normalized_x = std::clamp(normalized_x, 0.0F, 1.0F);
+
+    const float normalized_value =
+        std::clamp(sample.metric.value, 0.0F, 100.0F) / 100.0F;
 
     return D2D1::Point2F(
         bounds.left + (normalized_x * width),
@@ -57,32 +67,14 @@ void DrawGrid(
     }
 }
 
-} // namespace
-
-void DrawGraph(
+void DrawSegment(
     ID2D1RenderTarget* render_target,
     ID2D1Factory* factory,
     const D2D1_RECT_F& bounds,
-    std::span<const float> values,
+    std::span<const D2D1_POINT_2F> points,
     const GraphStyle& style) {
-    if (render_target == nullptr || factory == nullptr ||
-        bounds.right <= bounds.left || bounds.bottom <= bounds.top) {
+    if (points.size() < 2 || style.line == nullptr) {
         return;
-    }
-
-    if (style.background != nullptr) {
-        render_target->FillRectangle(bounds, style.background);
-    }
-    DrawGrid(render_target, bounds, style.grid);
-
-    if (values.size() < 2 || style.line == nullptr) {
-        return;
-    }
-
-    std::vector<D2D1_POINT_2F> points;
-    points.reserve(values.size());
-    for (std::size_t index = 0; index < values.size(); ++index) {
-        points.push_back(SamplePoint(bounds, index, values.size(), values[index]));
     }
 
     if (style.fill != nullptr) {
@@ -129,6 +121,52 @@ void DrawGraph(
     }
 
     raw_line_geometry->Release();
+}
+
+} // namespace
+
+void DrawGraph(
+    ID2D1RenderTarget* render_target,
+    ID2D1Factory* factory,
+    const D2D1_RECT_F& bounds,
+    std::span<const model::TimestampedMetric> samples,
+    model::SampleTime window_start,
+    model::SampleTime window_end,
+    const GraphStyle& style) {
+    if (render_target == nullptr || factory == nullptr ||
+        bounds.right <= bounds.left || bounds.bottom <= bounds.top) {
+        return;
+    }
+
+    if (style.background != nullptr) {
+        render_target->FillRectangle(bounds, style.background);
+    }
+    DrawGrid(render_target, bounds, style.grid);
+
+    if (samples.empty() || style.line == nullptr || window_end <= window_start) {
+        return;
+    }
+
+    // Unavailable samples deliberately break the path instead of connecting
+    // across missing provider data. This will matter once real providers are
+    // introduced in Phases 4 and 5.
+    std::vector<D2D1_POINT_2F> segment;
+    segment.reserve(samples.size());
+
+    const auto flush_segment = [&] {
+        DrawSegment(render_target, factory, bounds, segment, style);
+        segment.clear();
+    };
+
+    for (const model::TimestampedMetric& sample : samples) {
+        if (!sample.metric.HasValue()) {
+            flush_segment();
+            continue;
+        }
+
+        segment.push_back(SamplePoint(bounds, sample, window_start, window_end));
+    }
+    flush_segment();
 }
 
 } // namespace perfmon::ui
