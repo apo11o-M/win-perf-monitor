@@ -1,0 +1,26 @@
+#pragma once
+
+#include "../win32_headers.hpp"
+
+#include <d2d1.h>
+
+#include <span>
+
+namespace perfmon::ui {
+
+struct GraphStyle {
+    ID2D1Brush* background = nullptr;
+    ID2D1Brush* grid = nullptr;
+    ID2D1Brush* line = nullptr;
+    ID2D1Brush* fill = nullptr;
+    float line_width = 1.5F;
+};
+
+void DrawGraph(
+    ID2D1RenderTarget* render_target,
+    ID2D1Factory* factory,
+    const D2D1_RECT_F& bounds,
+    std::span<const float> values,
+    const GraphStyle& style);
+
+} // namespace perfmon::ui
