@@ -51,10 +51,8 @@ private:
         const D2D1_RECT_F& bounds,
         const std::wstring& gpu_name,
         const std::wstring& gpu_status);
-    void DrawStat(
-        float left,
-        float top,
-        float width,
+    void DrawCompactStat(
+        const D2D1_RECT_F& bounds,
         std::wstring_view label,
         std::wstring_view value);
     void DrawTextBlock(
@@ -72,7 +70,6 @@ private:
     Microsoft::WRL::ComPtr<IDWriteTextFormat> card_subtitle_format_;
     Microsoft::WRL::ComPtr<IDWriteTextFormat> detail_title_format_;
     Microsoft::WRL::ComPtr<IDWriteTextFormat> detail_subtitle_format_;
-    Microsoft::WRL::ComPtr<IDWriteTextFormat> body_format_;
     Microsoft::WRL::ComPtr<IDWriteTextFormat> graph_label_format_;
     Microsoft::WRL::ComPtr<IDWriteTextFormat> stat_label_format_;
     Microsoft::WRL::ComPtr<IDWriteTextFormat> stat_value_format_;

@@ -73,14 +73,16 @@ Renderer::Renderer(ID2D1Factory* d2d_factory, IDWriteFactory* dwrite_factory)
 
 void Renderer::CreateTextFormats() {
     card_label_format_ = CreateTextFormat(dwrite_factory_.Get(), 13.0F, DWRITE_FONT_WEIGHT_SEMI_BOLD);
-    card_value_format_ = CreateTextFormat(dwrite_factory_.Get(), 24.0F, DWRITE_FONT_WEIGHT_SEMI_BOLD);
+    card_value_format_ = CreateTextFormat(dwrite_factory_.Get(), 20.0F, DWRITE_FONT_WEIGHT_SEMI_BOLD);
     card_subtitle_format_ = CreateTextFormat(dwrite_factory_.Get(), 10.0F, DWRITE_FONT_WEIGHT_NORMAL);
     detail_title_format_ = CreateTextFormat(dwrite_factory_.Get(), 25.0F, DWRITE_FONT_WEIGHT_SEMI_BOLD);
     detail_subtitle_format_ = CreateTextFormat(dwrite_factory_.Get(), 12.0F, DWRITE_FONT_WEIGHT_NORMAL);
-    body_format_ = CreateTextFormat(dwrite_factory_.Get(), 13.0F, DWRITE_FONT_WEIGHT_NORMAL);
-    graph_label_format_ = CreateTextFormat(dwrite_factory_.Get(), 11.0F, DWRITE_FONT_WEIGHT_SEMI_BOLD);
-    stat_label_format_ = CreateTextFormat(dwrite_factory_.Get(), 11.0F, DWRITE_FONT_WEIGHT_NORMAL);
-    stat_value_format_ = CreateTextFormat(dwrite_factory_.Get(), 15.0F, DWRITE_FONT_WEIGHT_SEMI_BOLD);
+    ThrowIfFailed(
+        detail_subtitle_format_->SetTextAlignment(DWRITE_TEXT_ALIGNMENT_TRAILING),
+        "SetTextAlignment failed");
+    graph_label_format_ = CreateTextFormat(dwrite_factory_.Get(), 10.0F, DWRITE_FONT_WEIGHT_SEMI_BOLD);
+    stat_label_format_ = CreateTextFormat(dwrite_factory_.Get(), 9.0F, DWRITE_FONT_WEIGHT_NORMAL);
+    stat_value_format_ = CreateTextFormat(dwrite_factory_.Get(), 12.5F, DWRITE_FONT_WEIGHT_SEMI_BOLD);
 }
 
 void Renderer::EnsureDeviceResources(HWND window, float dpi) {
@@ -250,7 +252,7 @@ void Renderer::DrawComponentCard(
         primary_text_brush_.Get());
     DrawTextBlock(
         value,
-        D2D1::RectF(bounds.left + 12.0F, bounds.top + 29.0F, bounds.left + 74.0F, bounds.top + 62.0F),
+        D2D1::RectF(bounds.left + 12.0F, bounds.top + 31.0F, bounds.left + 74.0F, bounds.top + 59.0F),
         card_value_format_.Get(),
         primary_text_brush_.Get());
 
@@ -283,31 +285,31 @@ void Renderer::DrawComponentCard(
 void Renderer::DrawCpuDetail(const D2D1_RECT_F& bounds) {
     const float left = bounds.left + 22.0F;
     const float right = bounds.right - 22.0F;
-    const float stats_left = right - 164.0F;
 
+    // Keep the header to a single row so most vertical space belongs to the graph.
     DrawTextBlock(
         L"CPU",
-        D2D1::RectF(left, 17.0F, right, 50.0F),
+        D2D1::RectF(left, 15.0F, left + 110.0F, 48.0F),
         detail_title_format_.Get(),
         primary_text_brush_.Get());
     DrawTextBlock(
         L"AMD Ryzen 9 5900X",
-        D2D1::RectF(left, 49.0F, right, 68.0F),
+        D2D1::RectF(left + 120.0F, 19.0F, right, 43.0F),
         detail_subtitle_format_.Get(),
         secondary_text_brush_.Get());
 
     DrawTextBlock(
         L"Utilization",
-        D2D1::RectF(left, 78.0F, stats_left - 16.0F, 95.0F),
+        D2D1::RectF(left, 54.0F, right - 55.0F, 70.0F),
         graph_label_format_.Get(),
         secondary_text_brush_.Get());
     DrawTextBlock(
         L"100%",
-        D2D1::RectF(stats_left - 60.0F, 78.0F, stats_left - 16.0F, 95.0F),
-        graph_label_format_.Get(),
+        D2D1::RectF(right - 55.0F, 54.0F, right, 70.0F),
+        detail_subtitle_format_.Get(),
         subtle_text_brush_.Get());
 
-    const D2D1_RECT_F graph_bounds = D2D1::RectF(left, 99.0F, stats_left - 16.0F, 271.0F);
+    const D2D1_RECT_F graph_bounds = D2D1::RectF(left, 73.0F, right, 301.0F);
     DrawGraph(
         render_target_.Get(),
         d2d_factory_.Get(),
@@ -322,20 +324,34 @@ void Renderer::DrawCpuDetail(const D2D1_RECT_F& bounds) {
 
     DrawTextBlock(
         L"60 seconds",
-        D2D1::RectF(left, 275.0F, stats_left - 16.0F, 292.0F),
+        D2D1::RectF(left, 304.0F, right, 319.0F),
         graph_label_format_.Get(),
         subtle_text_brush_.Get());
 
-    DrawStat(stats_left, 83.0F, 164.0F, L"Utilization", L"42%");
-    DrawStat(stats_left, 141.0F, 164.0F, L"Physical cores", L"12");
-    DrawStat(stats_left, 199.0F, 164.0F, L"Logical processors", L"24");
-    DrawStat(stats_left, 257.0F, 164.0F, L"System uptime", L"3:42:18");
+    constexpr float stat_gap = 10.0F;
+    const float stat_top = 329.0F;
+    const float stat_bottom = 379.0F;
+    const float stat_width = (right - left - (stat_gap * 3.0F)) / 4.0F;
 
-    DrawTextBlock(
-        L"Static prototype data — live CPU sampling is introduced in Phase 4.",
-        D2D1::RectF(left, 346.0F, right, 369.0F),
-        body_format_.Get(),
-        subtle_text_brush_.Get());
+    DrawCompactStat(
+        D2D1::RectF(left, stat_top, left + stat_width, stat_bottom),
+        L"Utilization",
+        L"42%");
+    DrawCompactStat(
+        D2D1::RectF(left + stat_width + stat_gap, stat_top,
+                    left + (stat_width * 2.0F) + stat_gap, stat_bottom),
+        L"Physical cores",
+        L"12");
+    DrawCompactStat(
+        D2D1::RectF(left + (stat_width * 2.0F) + (stat_gap * 2.0F), stat_top,
+                    left + (stat_width * 3.0F) + (stat_gap * 2.0F), stat_bottom),
+        L"Logical processors",
+        L"24");
+    DrawCompactStat(
+        D2D1::RectF(left + (stat_width * 3.0F) + (stat_gap * 3.0F), stat_top,
+                    right, stat_bottom),
+        L"System uptime",
+        L"3:42:18");
 }
 
 void Renderer::DrawGpuDetail(
@@ -344,26 +360,31 @@ void Renderer::DrawGpuDetail(
     const std::wstring& gpu_status) {
     const float left = bounds.left + 22.0F;
     const float right = bounds.right - 22.0F;
-    const float stats_left = right - 164.0F;
     const std::wstring& subtitle = gpu_name.empty() ? gpu_status : gpu_name;
 
     DrawTextBlock(
         L"GPU",
-        D2D1::RectF(left, 17.0F, right, 50.0F),
+        D2D1::RectF(left, 15.0F, left + 110.0F, 48.0F),
         detail_title_format_.Get(),
         primary_text_brush_.Get());
     DrawTextBlock(
         subtitle,
-        D2D1::RectF(left, 49.0F, right, 68.0F),
+        D2D1::RectF(left + 120.0F, 19.0F, right, 43.0F),
         detail_subtitle_format_.Get(),
         secondary_text_brush_.Get());
 
     DrawTextBlock(
         L"GPU utilization",
-        D2D1::RectF(left, 78.0F, stats_left - 16.0F, 95.0F),
+        D2D1::RectF(left, 54.0F, right - 55.0F, 70.0F),
         graph_label_format_.Get(),
         secondary_text_brush_.Get());
-    const D2D1_RECT_F gpu_graph = D2D1::RectF(left, 99.0F, stats_left - 16.0F, 218.0F);
+    DrawTextBlock(
+        L"100%",
+        D2D1::RectF(right - 55.0F, 54.0F, right, 70.0F),
+        detail_subtitle_format_.Get(),
+        subtle_text_brush_.Get());
+
+    const D2D1_RECT_F gpu_graph = D2D1::RectF(left, 73.0F, right, 238.0F);
     DrawGraph(
         render_target_.Get(),
         d2d_factory_.Get(),
@@ -378,10 +399,10 @@ void Renderer::DrawGpuDetail(
 
     DrawTextBlock(
         L"Dedicated GPU memory",
-        D2D1::RectF(left, 237.0F, stats_left - 16.0F, 254.0F),
+        D2D1::RectF(left, 249.0F, right, 264.0F),
         graph_label_format_.Get(),
         secondary_text_brush_.Get());
-    const D2D1_RECT_F vram_graph = D2D1::RectF(left, 258.0F, stats_left - 16.0F, 329.0F);
+    const D2D1_RECT_F vram_graph = D2D1::RectF(left, 267.0F, right, 311.0F);
     DrawGraph(
         render_target_.Get(),
         d2d_factory_.Get(),
@@ -392,37 +413,51 @@ void Renderer::DrawGpuDetail(
             grid_brush_.Get(),
             gpu_brush_.Get(),
             gpu_fill_brush_.Get(),
-            1.7F});
+            1.5F});
 
-    DrawStat(stats_left, 83.0F, 164.0F, L"Utilization", L"17%");
-    DrawStat(stats_left, 136.0F, 164.0F, L"Dedicated memory", L"5.8 / 12.0 GB");
-    DrawStat(stats_left, 189.0F, 164.0F, L"Temperature", L"48 C");
-    DrawStat(stats_left, 242.0F, 164.0F, L"Power", L"86 W");
-    DrawStat(stats_left, 295.0F, 164.0F, L"Graphics clock", L"2,100 MHz");
+    constexpr float stat_gap = 8.0F;
+    const float stat_top = 329.0F;
+    const float stat_bottom = 379.0F;
+    const float stat_width = (right - left - (stat_gap * 4.0F)) / 5.0F;
 
-    DrawTextBlock(
-        L"Static prototype data — live NVML metrics are introduced in Phase 5.",
-        D2D1::RectF(left, 346.0F, right, 369.0F),
-        body_format_.Get(),
-        subtle_text_brush_.Get());
+    DrawCompactStat(
+        D2D1::RectF(left, stat_top, left + stat_width, stat_bottom),
+        L"Utilization",
+        L"17%");
+    DrawCompactStat(
+        D2D1::RectF(left + stat_width + stat_gap, stat_top,
+                    left + (stat_width * 2.0F) + stat_gap, stat_bottom),
+        L"VRAM",
+        L"5.8 / 12 GB");
+    DrawCompactStat(
+        D2D1::RectF(left + (stat_width * 2.0F) + (stat_gap * 2.0F), stat_top,
+                    left + (stat_width * 3.0F) + (stat_gap * 2.0F), stat_bottom),
+        L"Temperature",
+        L"48 C");
+    DrawCompactStat(
+        D2D1::RectF(left + (stat_width * 3.0F) + (stat_gap * 3.0F), stat_top,
+                    left + (stat_width * 4.0F) + (stat_gap * 3.0F), stat_bottom),
+        L"Power",
+        L"86 W");
+    DrawCompactStat(
+        D2D1::RectF(left + (stat_width * 4.0F) + (stat_gap * 4.0F), stat_top,
+                    right, stat_bottom),
+        L"Graphics clock",
+        L"2,100 MHz");
 }
 
-void Renderer::DrawStat(
-    float left,
-    float top,
-    float width,
+void Renderer::DrawCompactStat(
+    const D2D1_RECT_F& bounds,
     std::wstring_view label,
     std::wstring_view value) {
-    const D2D1_RECT_F panel = D2D1::RectF(left, top, left + width, top + 46.0F);
-    render_target_->FillRoundedRectangle(Rounded(panel, 6.0F), card_brush_.Get());
     DrawTextBlock(
         label,
-        D2D1::RectF(left + 10.0F, top + 6.0F, left + width - 8.0F, top + 21.0F),
+        D2D1::RectF(bounds.left, bounds.top + 3.0F, bounds.right, bounds.top + 17.0F),
         stat_label_format_.Get(),
         secondary_text_brush_.Get());
     DrawTextBlock(
         value,
-        D2D1::RectF(left + 10.0F, top + 22.0F, left + width - 8.0F, top + 43.0F),
+        D2D1::RectF(bounds.left, bounds.top + 20.0F, bounds.right, bounds.bottom),
         stat_value_format_.Get(),
         primary_text_brush_.Get());
 }
