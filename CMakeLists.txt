@@ -1,7 +1,7 @@
 cmake_minimum_required(VERSION 3.25)
 
 project(PerformanceMonitor
-    VERSION 0.5.0
+    VERSION 0.6.0
     DESCRIPTION "Lightweight Win32 CPU/GPU performance monitor"
     LANGUAGES CXX RC
 )
@@ -27,6 +27,8 @@ add_executable(PerformanceMonitor WIN32
     src/app/application.hpp
     src/app/main_window.cpp
     src/app/main_window.hpp
+    src/app/settings.cpp
+    src/app/settings.hpp
 
     src/model/metric_value.hpp
     src/model/system_sample.hpp
@@ -96,6 +98,7 @@ target_link_libraries(PerformanceMonitor PRIVATE
     pdh
     powrprof
     psapi
+    advapi32
 )
 
 # NVML is loaded dynamically at runtime, so we intentionally do NOT link

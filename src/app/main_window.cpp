@@ -24,6 +24,18 @@ constexpr wchar_t kWindowTitle[] = L"Performance Monitor";
     return std::clamp(preferred, minimum, maximum - extent);
 }
 
+[[nodiscard]] UINT CheckedMenuFlags(bool checked) noexcept {
+    return MF_STRING | (checked ? MF_CHECKED : MF_UNCHECKED);
+}
+
+[[nodiscard]] UINT VisibilityMenuFlags(bool checked, bool enabled) noexcept {
+    UINT flags = CheckedMenuFlags(checked);
+    if (!enabled) {
+        flags |= MF_GRAYED;
+    }
+    return flags;
+}
+
 } // namespace
 
 MainWindow::MainWindow(
@@ -40,18 +52,39 @@ MainWindow::~MainWindow() {
 void MainWindow::Create(int show_command) {
     RegisterWindowClass();
 
+    settings_ = settings_store_.Load();
+    ui_state_.cpu_visible = settings_.show_cpu;
+    ui_state_.gpu_visible = settings_.show_gpu;
+    ui_state_.window_size = settings_.window_size;
+
+    // Keep the Run-key entry synchronized with the persisted preference. When
+    // enabled, this also refreshes the command if the portable executable moved.
+    settings_store_.SetStartWithWindows(settings_.start_with_windows);
+
+    const POINT initial_position = settings_.has_window_position
+        ? settings_.window_position
+        : POINT{AppSettings::kDefaultWindowX, AppSettings::kDefaultWindowY};
+
     const float system_dpi = static_cast<float>(GetDpiForSystem());
     const float scale = system_dpi / 96.0F;
-    const int initial_width = static_cast<int>(std::lround(ui::kCollapsedWidthDip * scale));
-    const int initial_height = static_cast<int>(std::lround(ui::kCollapsedHeightDip * scale));
+    const int initial_width = static_cast<int>(std::lround(CurrentWindowWidthDip() * scale));
+    const int initial_height = static_cast<int>(std::lround(CurrentWindowHeightDip() * scale));
+
+    DWORD extended_style = WS_EX_TOOLWINDOW;
+    if (settings_.always_on_top) {
+        extended_style |= WS_EX_TOPMOST;
+    }
+    if (settings_.opacity_percent < 100) {
+        extended_style |= WS_EX_LAYERED;
+    }
 
     window_ = CreateWindowExW(
-        WS_EX_TOPMOST | WS_EX_TOOLWINDOW,
+        extended_style,
         kWindowClassName,
         kWindowTitle,
         WS_POPUP,
-        100,
-        100,
+        initial_position.x,
+        initial_position.y,
         initial_width,
         initial_height,
         nullptr,
@@ -64,10 +97,34 @@ void MainWindow::Create(int show_command) {
     }
 
     dpi_ = static_cast<float>(GetDpiForWindow(window_));
-    ApplyWindowRect(
-        POINT{100, 100},
-        ui::kCollapsedWidthDip,
-        ui::kCollapsedHeightDip);
+
+    const int restored_width = DipToPixels(CurrentWindowWidthDip());
+    const int restored_height = DipToPixels(CurrentWindowHeightDip());
+    const RECT restored_rect{
+        initial_position.x,
+        initial_position.y,
+        initial_position.x + restored_width,
+        initial_position.y + restored_height};
+
+    if (settings_.has_window_position &&
+        MonitorFromRect(&restored_rect, MONITOR_DEFAULTTONULL) != nullptr) {
+        // Preserve an intentionally boundary-straddling position if the saved
+        // rail is still visible on at least one connected monitor.
+        SetWindowRectAt(
+            initial_position,
+            CurrentWindowWidthDip(),
+            CurrentWindowHeightDip());
+    } else {
+        // A missing/off-screen saved monitor falls back to the nearest valid
+        // work area, which also handles first launch.
+        ApplyWindowRect(
+            initial_position,
+            CurrentWindowWidthDip(),
+            CurrentWindowHeightDip());
+    }
+
+    ApplyOpacity();
+    PersistCurrentWindowPosition();
 
     ShowWindow(window_, show_command);
     UpdateWindow(window_);
@@ -100,12 +157,45 @@ int MainWindow::DipToPixels(float value) const noexcept {
     return static_cast<int>(std::lround(value * DpiScale()));
 }
 
+float MainWindow::CurrentWindowWidthDip() const noexcept {
+    return ui::WindowWidthDip(ui_state_.window_size, ui_state_.IsExpanded());
+}
+
+float MainWindow::CurrentWindowHeightDip() const noexcept {
+    return ui::WindowHeightDip(
+        ui_state_.window_size,
+        ui_state_.IsExpanded(),
+        ui_state_.cpu_visible,
+        ui_state_.gpu_visible);
+}
+
+POINT MainWindow::PersistentWindowPosition() const noexcept {
+    if (window_ == nullptr) {
+        return settings_.window_position;
+    }
+
+    if (expansion_state_.active && !expansion_state_.moved_while_expanded) {
+        return POINT{
+            expansion_state_.original_collapsed_rect.left,
+            expansion_state_.original_collapsed_rect.top};
+    }
+
+    RECT current{};
+    if (GetWindowRect(window_, &current) == FALSE) {
+        return settings_.window_position;
+    }
+    return POINT{current.left, current.top};
+}
+
 POINT MainWindow::ComponentRailAnchorPoint(const RECT& window_rect) const noexcept {
     // The component rail is the persistent part of the widget. Use a point near
     // the center of the collapsed rail so monitor ownership does not flip just
     // because the temporary detail pane changes the overall window area.
-    const int rail_width = DipToPixels(ui::kComponentRailWidthDip);
-    const int collapsed_height = DipToPixels(ui::kCollapsedHeightDip);
+    const int rail_width = DipToPixels(ui::ComponentRailWidthDip(ui_state_.window_size));
+    const int collapsed_height = DipToPixels(ui::CollapsedHeightDip(
+        ui_state_.window_size,
+        ui_state_.cpu_visible,
+        ui_state_.gpu_visible));
 
     return POINT{
         window_rect.left + (rail_width / 2),
@@ -133,7 +223,7 @@ ui::Layout MainWindow::CurrentLayout() const noexcept {
         D2D1::SizeF(
             static_cast<float>(client.right - client.left) / scale,
             static_cast<float>(client.bottom - client.top) / scale),
-        ui_state_.IsExpanded());
+        ui_state_);
 }
 
 ui::Component MainWindow::HitTestClientPoint(POINT point) const noexcept {
@@ -177,7 +267,7 @@ void MainWindow::UpdateHoverFromClientPoint(POINT client_point) {
 }
 
 void MainWindow::HandleCardClick(ui::Component component) {
-    if (component == ui::Component::None) {
+    if (component == ui::Component::None || !ui_state_.IsVisible(component)) {
         return;
     }
 
@@ -227,16 +317,21 @@ void MainWindow::Collapse() {
     // positions.
     SetWindowRectAt(
         collapse_position,
-        ui::kCollapsedWidthDip,
-        ui::kCollapsedHeightDip);
+        CurrentWindowWidthDip(),
+        CurrentWindowHeightDip());
 
     expansion_state_ = {};
+    PersistCurrentWindowPosition();
     InvalidateRect(window_, nullptr, FALSE);
 }
 
 void MainWindow::ResizeExpandedFromCollapsedRect(const RECT& collapsed_rect) {
-    const int width = DipToPixels(ui::kExpandedWidthDip);
-    const int height = DipToPixels(ui::kExpandedHeightDip);
+    const int width = DipToPixels(ui::WindowWidthDip(ui_state_.window_size, true));
+    const int height = DipToPixels(ui::WindowHeightDip(
+        ui_state_.window_size,
+        true,
+        ui_state_.cpu_visible,
+        ui_state_.gpu_visible));
 
     MONITORINFO monitor_info{};
     monitor_info.cbSize = sizeof(monitor_info);
@@ -253,12 +348,12 @@ void MainWindow::ResizeExpandedFromCollapsedRect(const RECT& collapsed_rect) {
     if (GetMonitorInfoW(monitor, &monitor_info) == FALSE) {
         SetWindowPos(
             window_,
-            HWND_TOPMOST,
+            nullptr,
             collapsed_rect.left,
             collapsed_rect.top,
             width,
             height,
-            SWP_NOACTIVATE);
+            SWP_NOACTIVATE | SWP_NOZORDER);
         return;
     }
 
@@ -268,12 +363,12 @@ void MainWindow::ResizeExpandedFromCollapsedRect(const RECT& collapsed_rect) {
 
     SetWindowPos(
         window_,
-        HWND_TOPMOST,
+        nullptr,
         x,
         y,
         width,
         height,
-        SWP_NOACTIVATE);
+        SWP_NOACTIVATE | SWP_NOZORDER);
 }
 
 void MainWindow::SetWindowRectAt(
@@ -282,12 +377,12 @@ void MainWindow::SetWindowRectAt(
     float logical_height) {
     SetWindowPos(
         window_,
-        HWND_TOPMOST,
+        nullptr,
         position.x,
         position.y,
         DipToPixels(logical_width),
         DipToPixels(logical_height),
-        SWP_NOACTIVATE);
+        SWP_NOACTIVATE | SWP_NOZORDER);
 }
 
 void MainWindow::DragWindowFromClientArea() {
@@ -297,18 +392,21 @@ void MainWindow::DragWindowFromClientArea() {
     ReleaseCapture();
     SendMessageW(window_, WM_NCLBUTTONDOWN, HTCAPTION, 0);
 
-    if (!ui_state_.IsExpanded() || !expansion_state_.active) {
+    RECT after{};
+    GetWindowRect(window_, &after);
+    if (after.left == before.left && after.top == before.top) {
         return;
     }
 
-    RECT after{};
-    GetWindowRect(window_, &after);
-    if (after.left != before.left || after.top != before.top) {
+    if (ui_state_.IsExpanded() && expansion_state_.active) {
         // Only this user-driven drag path marks the expansion as moved. Automatic
         // SetWindowPos calls used for edge/DPI handling therefore never turn an
         // implementation adjustment into a persistent user position.
         expansion_state_.moved_while_expanded = true;
+        expansion_state_.anchor_monitor = ComponentRailMonitor(after);
     }
+
+    PersistCurrentWindowPosition();
 }
 
 void MainWindow::ApplyWindowRect(
@@ -318,8 +416,7 @@ void MainWindow::ApplyWindowRect(
     const int width = DipToPixels(logical_width);
     const int height = DipToPixels(logical_height);
 
-    const POINT probe_point = preferred_position;
-    const HMONITOR monitor = MonitorFromPoint(probe_point, MONITOR_DEFAULTTONEAREST);
+    const HMONITOR monitor = MonitorFromPoint(preferred_position, MONITOR_DEFAULTTONEAREST);
     MONITORINFO monitor_info{};
     monitor_info.cbSize = sizeof(monitor_info);
 
@@ -333,12 +430,12 @@ void MainWindow::ApplyWindowRect(
 
     SetWindowPos(
         window_,
-        HWND_TOPMOST,
+        nullptr,
         x,
         y,
         width,
         height,
-        SWP_NOACTIVATE);
+        SWP_NOACTIVATE | SWP_NOZORDER);
 }
 
 void MainWindow::HandleDpiChanged(WPARAM w_param, LPARAM l_param) {
@@ -346,10 +443,6 @@ void MainWindow::HandleDpiChanged(WPARAM w_param, LPARAM l_param) {
     renderer_.SetDpi(dpi_);
 
     const auto* suggested = reinterpret_cast<const RECT*>(l_param);
-    const float logical_width =
-        ui_state_.IsExpanded() ? ui::kExpandedWidthDip : ui::kCollapsedWidthDip;
-    const float logical_height =
-        ui_state_.IsExpanded() ? ui::kExpandedHeightDip : ui::kCollapsedHeightDip;
 
     // Respect Windows' suggested top-left when crossing DPI boundaries, but keep
     // our fixed logical size. Re-running monitor selection/clamping here can make
@@ -357,15 +450,190 @@ void MainWindow::HandleDpiChanged(WPARAM w_param, LPARAM l_param) {
     // expanded, collapsed, or dragged.
     SetWindowPos(
         window_,
-        HWND_TOPMOST,
+        nullptr,
         suggested->left,
         suggested->top,
-        DipToPixels(logical_width),
-        DipToPixels(logical_height),
-        SWP_NOACTIVATE);
+        DipToPixels(CurrentWindowWidthDip()),
+        DipToPixels(CurrentWindowHeightDip()),
+        SWP_NOACTIVATE | SWP_NOZORDER);
 
     // original_collapsed_rect remains untouched. It is the user's pre-expansion
     // anchor and must survive automatic DPI/edge adjustments.
+}
+
+void MainWindow::ApplyAlwaysOnTop() {
+    if (window_ == nullptr) {
+        return;
+    }
+
+    SetWindowPos(
+        window_,
+        settings_.always_on_top ? HWND_TOPMOST : HWND_NOTOPMOST,
+        0,
+        0,
+        0,
+        0,
+        SWP_NOMOVE | SWP_NOSIZE | SWP_NOACTIVATE);
+}
+
+void MainWindow::ApplyOpacity() {
+    if (window_ == nullptr) {
+        return;
+    }
+
+    LONG_PTR extended_style = GetWindowLongPtrW(window_, GWL_EXSTYLE);
+    if (settings_.opacity_percent < 100) {
+        extended_style |= WS_EX_LAYERED;
+    } else {
+        extended_style &= ~static_cast<LONG_PTR>(WS_EX_LAYERED);
+    }
+    SetWindowLongPtrW(window_, GWL_EXSTYLE, extended_style);
+
+    if (settings_.opacity_percent < 100) {
+        const BYTE alpha = static_cast<BYTE>(
+            (255 * std::clamp(settings_.opacity_percent, 0, 100)) / 100);
+        (void)SetLayeredWindowAttributes(window_, 0, alpha, LWA_ALPHA);
+    }
+
+    SetWindowPos(
+        window_,
+        nullptr,
+        0,
+        0,
+        0,
+        0,
+        SWP_NOMOVE | SWP_NOSIZE | SWP_NOZORDER | SWP_NOACTIVATE | SWP_FRAMECHANGED);
+    InvalidateRect(window_, nullptr, FALSE);
+}
+
+void MainWindow::ToggleComponentVisibility(ui::Component component) {
+    if (component == ui::Component::None) {
+        return;
+    }
+
+    const bool currently_visible = ui_state_.IsVisible(component);
+    if (currently_visible && ui_state_.VisibleComponentCount() <= 1) {
+        return;
+    }
+
+    if (component == ui::Component::Cpu) {
+        ui_state_.cpu_visible = !ui_state_.cpu_visible;
+        settings_.show_cpu = ui_state_.cpu_visible;
+    } else if (component == ui::Component::Gpu) {
+        ui_state_.gpu_visible = !ui_state_.gpu_visible;
+        settings_.show_gpu = ui_state_.gpu_visible;
+    }
+
+    if (!ui_state_.IsVisible(ui_state_.hovered)) {
+        ui_state_.hovered = ui::Component::None;
+    }
+
+    if (!ui_state_.IsVisible(ui_state_.selected)) {
+        if (ui_state_.cpu_visible) {
+            ui_state_.selected = ui::Component::Cpu;
+        } else if (ui_state_.gpu_visible) {
+            ui_state_.selected = ui::Component::Gpu;
+        } else {
+            ui_state_.selected = ui::Component::None;
+        }
+    }
+
+    if (!ui_state_.IsExpanded()) {
+        RECT current{};
+        GetWindowRect(window_, &current);
+        ApplyWindowRect(
+            POINT{current.left, current.top},
+            CurrentWindowWidthDip(),
+            CurrentWindowHeightDip());
+        PersistCurrentWindowPosition();
+    }
+
+    SaveSettings();
+    InvalidateRect(window_, nullptr, FALSE);
+}
+
+void MainWindow::SetWindowSizePreset(ui::WindowSizePreset preset) {
+    if (ui_state_.window_size == preset) {
+        return;
+    }
+
+    const POINT anchor = PersistentWindowPosition();
+    ui_state_.window_size = preset;
+    settings_.window_size = preset;
+
+    if (ui_state_.IsExpanded()) {
+        expansion_state_.original_collapsed_rect.left = anchor.x;
+        expansion_state_.original_collapsed_rect.top = anchor.y;
+        expansion_state_.original_collapsed_rect.right =
+            anchor.x + DipToPixels(ui::WindowWidthDip(preset, false));
+        expansion_state_.original_collapsed_rect.bottom =
+            anchor.y + DipToPixels(ui::WindowHeightDip(
+                preset,
+                false,
+                ui_state_.cpu_visible,
+                ui_state_.gpu_visible));
+        expansion_state_.anchor_monitor = ComponentRailMonitor(expansion_state_.original_collapsed_rect);
+        ResizeExpandedFromCollapsedRect(expansion_state_.original_collapsed_rect);
+    } else {
+        ApplyWindowRect(anchor, CurrentWindowWidthDip(), CurrentWindowHeightDip());
+        PersistCurrentWindowPosition();
+    }
+
+    SaveSettings();
+    InvalidateRect(window_, nullptr, FALSE);
+}
+
+void MainWindow::ResetWindowPosition() {
+    HMONITOR monitor = MonitorFromPoint(POINT{0, 0}, MONITOR_DEFAULTTOPRIMARY);
+    MONITORINFO monitor_info{};
+    monitor_info.cbSize = sizeof(monitor_info);
+
+    POINT reset_position{AppSettings::kDefaultWindowX, AppSettings::kDefaultWindowY};
+    if (GetMonitorInfoW(monitor, &monitor_info) != FALSE) {
+        reset_position.x = monitor_info.rcWork.left + AppSettings::kDefaultWindowX;
+        reset_position.y = monitor_info.rcWork.top + AppSettings::kDefaultWindowY;
+    }
+
+    if (ui_state_.IsExpanded()) {
+        expansion_state_.active = true;
+        expansion_state_.moved_while_expanded = false;
+        expansion_state_.original_collapsed_rect = RECT{
+            reset_position.x,
+            reset_position.y,
+            reset_position.x + DipToPixels(ui::WindowWidthDip(ui_state_.window_size, false)),
+            reset_position.y + DipToPixels(ui::WindowHeightDip(
+                ui_state_.window_size,
+                false,
+                ui_state_.cpu_visible,
+                ui_state_.gpu_visible))};
+        expansion_state_.anchor_monitor = monitor;
+        ResizeExpandedFromCollapsedRect(expansion_state_.original_collapsed_rect);
+    } else {
+        ApplyWindowRect(reset_position, CurrentWindowWidthDip(), CurrentWindowHeightDip());
+    }
+
+    PersistCurrentWindowPosition();
+    InvalidateRect(window_, nullptr, FALSE);
+}
+
+void MainWindow::ToggleStartWithWindows() {
+    settings_.start_with_windows = !settings_.start_with_windows;
+    settings_store_.SetStartWithWindows(settings_.start_with_windows);
+    SaveSettings();
+}
+
+void MainWindow::SaveSettings() noexcept {
+    settings_store_.Save(settings_);
+}
+
+void MainWindow::PersistCurrentWindowPosition() noexcept {
+    if (window_ == nullptr) {
+        return;
+    }
+
+    settings_.window_position = PersistentWindowPosition();
+    settings_.has_window_position = true;
+    SaveSettings();
 }
 
 void MainWindow::StartSampler() {
@@ -405,11 +673,64 @@ void MainWindow::HandleSampleReady() {
 
 void MainWindow::ShowContextMenu(POINT screen_point) {
     HMENU menu = CreatePopupMenu();
-    if (menu == nullptr) {
+    HMENU opacity_menu = CreatePopupMenu();
+    HMENU visibility_menu = CreatePopupMenu();
+    HMENU size_menu = CreatePopupMenu();
+    if (menu == nullptr || opacity_menu == nullptr || visibility_menu == nullptr || size_menu == nullptr) {
+        if (menu != nullptr) {
+            DestroyMenu(menu);
+        }
+        if (opacity_menu != nullptr) {
+            DestroyMenu(opacity_menu);
+        }
+        if (visibility_menu != nullptr) {
+            DestroyMenu(visibility_menu);
+        }
+        if (size_menu != nullptr) {
+            DestroyMenu(size_menu);
+        }
         return;
     }
 
+    AppendMenuW(
+        menu,
+        CheckedMenuFlags(settings_.always_on_top),
+        kAlwaysOnTopMenuId,
+        L"Always on top");
+
+    AppendMenuW(opacity_menu, CheckedMenuFlags(settings_.opacity_percent == 60), kOpacity60MenuId, L"60%");
+    AppendMenuW(opacity_menu, CheckedMenuFlags(settings_.opacity_percent == 80), kOpacity80MenuId, L"80%");
+    AppendMenuW(opacity_menu, CheckedMenuFlags(settings_.opacity_percent == 100), kOpacity100MenuId, L"100%");
+    AppendMenuW(menu, MF_POPUP, reinterpret_cast<UINT_PTR>(opacity_menu), L"Opacity");
+
+    const std::size_t visible_count = ui_state_.VisibleComponentCount();
+    AppendMenuW(
+        visibility_menu,
+        VisibilityMenuFlags(ui_state_.cpu_visible, !ui_state_.cpu_visible || visible_count > 1),
+        kShowCpuMenuId,
+        L"Show CPU");
+    AppendMenuW(
+        visibility_menu,
+        VisibilityMenuFlags(ui_state_.gpu_visible, !ui_state_.gpu_visible || visible_count > 1),
+        kShowGpuMenuId,
+        L"Show GPU");
+    AppendMenuW(menu, MF_POPUP, reinterpret_cast<UINT_PTR>(visibility_menu), L"Components");
+
+    AppendMenuW(size_menu, CheckedMenuFlags(ui_state_.window_size == ui::WindowSizePreset::Small), kWindowSmallMenuId, L"Small");
+    AppendMenuW(size_menu, CheckedMenuFlags(ui_state_.window_size == ui::WindowSizePreset::Medium), kWindowMediumMenuId, L"Medium");
+    AppendMenuW(size_menu, CheckedMenuFlags(ui_state_.window_size == ui::WindowSizePreset::Large), kWindowLargeMenuId, L"Large");
+    AppendMenuW(menu, MF_POPUP, reinterpret_cast<UINT_PTR>(size_menu), L"Window size");
+
+    AppendMenuW(menu, MF_SEPARATOR, 0, nullptr);
+    AppendMenuW(menu, MF_STRING, kResetPositionMenuId, L"Reset window position");
+    AppendMenuW(
+        menu,
+        CheckedMenuFlags(settings_.start_with_windows),
+        kStartWithWindowsMenuId,
+        L"Start with Windows");
+    AppendMenuW(menu, MF_SEPARATOR, 0, nullptr);
     AppendMenuW(menu, MF_STRING, kExitMenuId, L"Exit");
+
     SetForegroundWindow(window_);
     const UINT selected = TrackPopupMenu(
         menu,
@@ -421,8 +742,63 @@ void MainWindow::ShowContextMenu(POINT screen_point) {
         nullptr);
     DestroyMenu(menu);
 
-    if (selected == kExitMenuId) {
+    if (selected != 0) {
+        HandleContextMenuCommand(selected);
+    }
+}
+
+void MainWindow::HandleContextMenuCommand(UINT command) {
+    switch (command) {
+    case kAlwaysOnTopMenuId:
+        settings_.always_on_top = !settings_.always_on_top;
+        ApplyAlwaysOnTop();
+        SaveSettings();
+        break;
+
+    case kOpacity60MenuId:
+    case kOpacity80MenuId:
+    case kOpacity100MenuId:
+        settings_.opacity_percent = command == kOpacity60MenuId
+            ? 60
+            : (command == kOpacity80MenuId ? 80 : 100);
+        ApplyOpacity();
+        SaveSettings();
+        break;
+
+    case kShowCpuMenuId:
+        ToggleComponentVisibility(ui::Component::Cpu);
+        break;
+
+    case kShowGpuMenuId:
+        ToggleComponentVisibility(ui::Component::Gpu);
+        break;
+
+    case kWindowSmallMenuId:
+        SetWindowSizePreset(ui::WindowSizePreset::Small);
+        break;
+
+    case kWindowMediumMenuId:
+        SetWindowSizePreset(ui::WindowSizePreset::Medium);
+        break;
+
+    case kWindowLargeMenuId:
+        SetWindowSizePreset(ui::WindowSizePreset::Large);
+        break;
+
+    case kResetPositionMenuId:
+        ResetWindowPosition();
+        break;
+
+    case kStartWithWindowsMenuId:
+        ToggleStartWithWindows();
+        break;
+
+    case kExitMenuId:
         DestroyWindow(window_);
+        break;
+
+    default:
+        break;
     }
 }
 
@@ -442,6 +818,10 @@ LRESULT MainWindow::HandleMessage(UINT message, WPARAM w_param, LPARAM l_param) 
 
     case WM_DPICHANGED:
         HandleDpiChanged(w_param, l_param);
+        return 0;
+
+    case WM_EXITSIZEMOVE:
+        PersistCurrentWindowPosition();
         return 0;
 
     case WM_MOUSEMOVE:
@@ -507,6 +887,7 @@ LRESULT MainWindow::HandleMessage(UINT message, WPARAM w_param, LPARAM l_param) 
         return 0;
 
     case WM_DESTROY:
+        PersistCurrentWindowPosition();
         StopSampler();
         PostQuitMessage(0);
         return 0;

@@ -290,7 +290,7 @@ void Renderer::Draw(
 
     render_target_->BeginDraw();
     const D2D1_SIZE_F client_size = render_target_->GetSize();
-    const Layout layout = CalculateLayout(client_size, state.IsExpanded());
+    const Layout layout = CalculateLayout(client_size, state);
 
     render_target_->Clear(D2D1::ColorF(0.052F, 0.063F, 0.085F, 1.0F));
     DrawComponentRail(layout, state, performance);
@@ -324,24 +324,28 @@ void Renderer::DrawComponentRail(
     const model::PerformanceSnapshot& performance) {
     render_target_->FillRectangle(layout.component_rail, rail_brush_.Get());
 
-    DrawComponentCard(
-        layout.cpu_card,
-        Component::Cpu,
-        state,
-        performance.cpu_total,
-        performance,
-        L"CPU",
-        CpuDisplayName(performance));
+    if (state.cpu_visible) {
+        DrawComponentCard(
+            layout.cpu_card,
+            Component::Cpu,
+            state,
+            performance.cpu_total,
+            performance,
+            L"CPU",
+            CpuDisplayName(performance));
+    }
 
-    const std::wstring gpu_subtitle = GpuDisplayName(performance);
-    DrawComponentCard(
-        layout.gpu_card,
-        Component::Gpu,
-        state,
-        performance.gpu_total,
-        performance,
-        L"GPU",
-        gpu_subtitle);
+    if (state.gpu_visible) {
+        const std::wstring gpu_subtitle = GpuDisplayName(performance);
+        DrawComponentCard(
+            layout.gpu_card,
+            Component::Gpu,
+            state,
+            performance.gpu_total,
+            performance,
+            L"GPU",
+            gpu_subtitle);
+    }
 }
 
 void Renderer::DrawComponentCard(
@@ -547,7 +551,7 @@ void Renderer::DrawCpuLogicalProcessorGrid(
                 graph_background_brush_.Get(),
                 nullptr,
                 cpu_brush_.Get(),
-                nullptr,
+                cpu_fill_brush_.Get(),
                 1.0F});
         render_target_->DrawRectangle(cell, separator_brush_.Get(), 1.0F);
 
