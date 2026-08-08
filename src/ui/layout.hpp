@@ -7,11 +7,11 @@
 
 namespace perfmon::ui {
 
-inline constexpr float kCollapsedWidthDip = 220.0F;
+inline constexpr float kCollapsedWidthDip = 195.0F;
 inline constexpr float kCollapsedHeightDip = 200.0F;
-inline constexpr float kExpandedWidthDip = 760.0F;
-inline constexpr float kExpandedHeightDip = 390.0F;
-inline constexpr float kComponentRailWidthDip = 220.0F;
+inline constexpr float kExpandedWidthDip = 660.0F;
+inline constexpr float kExpandedHeightDip = 480.0F;
+inline constexpr float kComponentRailWidthDip = 195.0F;
 
 struct Layout {
     D2D1_RECT_F client{};

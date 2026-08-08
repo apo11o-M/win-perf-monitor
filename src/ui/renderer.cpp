@@ -2,6 +2,7 @@
 
 #include "graph_renderer.hpp"
 
+#include <algorithm>
 #include <chrono>
 #include <cstddef>
 #include <cmath>
@@ -192,7 +193,7 @@ Renderer::Renderer(ID2D1Factory* d2d_factory, IDWriteFactory* dwrite_factory)
 
 void Renderer::CreateTextFormats() {
     card_label_format_ = CreateTextFormat(dwrite_factory_.Get(), 13.0F, DWRITE_FONT_WEIGHT_SEMI_BOLD);
-    card_value_format_ = CreateTextFormat(dwrite_factory_.Get(), 20.0F, DWRITE_FONT_WEIGHT_SEMI_BOLD);
+    card_value_format_ = CreateTextFormat(dwrite_factory_.Get(), 18.0F, DWRITE_FONT_WEIGHT_SEMI_BOLD);
     card_subtitle_format_ = CreateTextFormat(dwrite_factory_.Get(), 10.0F, DWRITE_FONT_WEIGHT_NORMAL);
     detail_title_format_ = CreateTextFormat(dwrite_factory_.Get(), 22.0F, DWRITE_FONT_WEIGHT_SEMI_BOLD);
     detail_subtitle_format_ = CreateTextFormat(dwrite_factory_.Get(), 12.0F, DWRITE_FONT_WEIGHT_NORMAL);
@@ -200,8 +201,8 @@ void Renderer::CreateTextFormats() {
         detail_subtitle_format_->SetTextAlignment(DWRITE_TEXT_ALIGNMENT_TRAILING),
         "SetTextAlignment failed");
     graph_label_format_ = CreateTextFormat(dwrite_factory_.Get(), 11.5F, DWRITE_FONT_WEIGHT_SEMI_BOLD);
-    logical_graph_label_format_ = CreateTextFormat(dwrite_factory_.Get(), 8.0F, DWRITE_FONT_WEIGHT_SEMI_BOLD);
-    stat_label_format_ = CreateTextFormat(dwrite_factory_.Get(), 9.0F, DWRITE_FONT_WEIGHT_NORMAL);
+    logical_graph_label_format_ = CreateTextFormat(dwrite_factory_.Get(), 11.0F, DWRITE_FONT_WEIGHT_SEMI_BOLD);
+    stat_label_format_ = CreateTextFormat(dwrite_factory_.Get(), 11.5F, DWRITE_FONT_WEIGHT_NORMAL);
     stat_value_format_ = CreateTextFormat(dwrite_factory_.Get(), 12.5F, DWRITE_FONT_WEIGHT_SEMI_BOLD);
 }
 
@@ -374,19 +375,19 @@ void Renderer::DrawComponentCard(
     const std::wstring value = FormatPercentage(series.latest);
     DrawTextBlock(
         title,
-        D2D1::RectF(bounds.left + 12.0F, bounds.top + 8.0F, bounds.left + 70.0F, bounds.top + 28.0F),
+        D2D1::RectF(bounds.left + 10.0F, bounds.top + 8.0F, bounds.left + 64.0F, bounds.top + 27.0F),
         card_label_format_.Get(),
         primary_text_brush_.Get());
     DrawTextBlock(
         value,
-        D2D1::RectF(bounds.left + 12.0F, bounds.top + 31.0F, bounds.left + 74.0F, bounds.top + 59.0F),
+        D2D1::RectF(bounds.left + 10.0F, bounds.top + 31.0F, bounds.left + 65.0F, bounds.top + 57.0F),
         card_value_format_.Get(),
         primary_text_brush_.Get());
 
     const D2D1_RECT_F graph_bounds = D2D1::RectF(
-        bounds.left + 80.0F,
+        bounds.left + 67.0F,
         bounds.top + 11.0F,
-        bounds.right - 9.0F,
+        bounds.right - 8.0F,
         bounds.bottom - 21.0F);
     DrawGraph(
         render_target_.Get(),
@@ -404,7 +405,7 @@ void Renderer::DrawComponentCard(
 
     DrawTextBlock(
         subtitle,
-        D2D1::RectF(bounds.left + 80.0F, bounds.bottom - 18.0F, bounds.right - 8.0F, bounds.bottom - 4.0F),
+        D2D1::RectF(bounds.left + 67.0F, bounds.bottom - 18.0F, bounds.right - 7.0F, bounds.bottom - 4.0F),
         card_subtitle_format_.Get(),
         secondary_text_brush_.Get());
 }
@@ -437,14 +438,14 @@ void Renderer::DrawCpuDetail(
         detail_subtitle_format_.Get(),
         subtle_text_brush_.Get());
 
-    DrawCpuLogicalProcessorGrid(
-        D2D1::RectF(left, 73.0F, right, 318.0F),
-        performance);
-
-    constexpr float stat_gap = 8.0F;
+    constexpr float stat_gap = 6.0F;
     constexpr std::size_t stat_count = 5;
-    const float stat_top = 329.0F;
-    const float stat_bottom = 379.0F;
+    const float stat_bottom = bounds.bottom - 11.0F;
+    const float stat_top = stat_bottom - 50.0F;
+
+    DrawCpuLogicalProcessorGrid(
+        D2D1::RectF(left, 73.0F, right, stat_top - 11.0F),
+        performance);
     const float stat_width =
         (right - left - (stat_gap * static_cast<float>(stat_count - 1))) /
         static_cast<float>(stat_count);
@@ -587,7 +588,38 @@ void Renderer::DrawGpuDetail(
         detail_subtitle_format_.Get(),
         subtle_text_brush_.Get());
 
-    const D2D1_RECT_F gpu_graph = D2D1::RectF(left, 73.0F, right, 238.0F);
+    constexpr float stat_gap = 6.0F;
+    const float stat_bottom = bounds.bottom - 11.0F;
+    const float stat_top = stat_bottom - 50.0F;
+
+    // Split the available graph area at roughly 2:1 between GPU utilization
+    // and dedicated-memory usage. Keep the headers/gaps fixed, then divide
+    // only the drawable graph height so the ratio remains stable if the
+    // detail pane is resized again later.
+    constexpr float gpu_graph_top = 73.0F;
+    constexpr float utilization_to_memory_ratio = 2.0F;
+    constexpr float graph_to_memory_header_gap = 11.0F;
+    constexpr float memory_header_height = 15.0F;
+    constexpr float memory_header_to_graph_gap = 3.0F;
+    constexpr float graph_to_stats_gap = 18.0F;
+
+    const float graph_region_bottom = stat_top - graph_to_stats_gap;
+    const float fixed_vertical_overhead =
+        graph_to_memory_header_gap + memory_header_height + memory_header_to_graph_gap;
+    const float combined_graph_height = std::max(
+        0.0F,
+        graph_region_bottom - gpu_graph_top - fixed_vertical_overhead);
+    const float vram_graph_height =
+        combined_graph_height / (utilization_to_memory_ratio + 1.0F);
+    const float gpu_graph_height = vram_graph_height * utilization_to_memory_ratio;
+
+    const float gpu_graph_bottom = gpu_graph_top + gpu_graph_height;
+    const float vram_header_top = gpu_graph_bottom + graph_to_memory_header_gap;
+    const float vram_header_bottom = vram_header_top + memory_header_height;
+    const float vram_graph_top = vram_header_bottom + memory_header_to_graph_gap;
+    const float vram_graph_bottom = vram_graph_top + vram_graph_height;
+
+    const D2D1_RECT_F gpu_graph = D2D1::RectF(left, gpu_graph_top, right, gpu_graph_bottom);
     GraphStyle gpu_utilization_style{
         graph_background_brush_.Get(),
         grid_brush_.Get(),
@@ -607,15 +639,15 @@ void Renderer::DrawGpuDetail(
 
     DrawTextBlock(
         L"Dedicated GPU Memory",
-        D2D1::RectF(left, 249.0F, right - 85.0F, 264.0F),
+        D2D1::RectF(left, vram_header_top, right - 85.0F, vram_header_bottom),
         graph_label_format_.Get(),
         secondary_text_brush_.Get());
     DrawTextBlock(
         FormatVramUsed(performance.gpu_info),
-        D2D1::RectF(right - 85.0F, 249.0F, right, 264.0F),
+        D2D1::RectF(right - 85.0F, vram_header_top, right, vram_header_bottom),
         detail_subtitle_format_.Get(),
         subtle_text_brush_.Get());
-    const D2D1_RECT_F vram_graph = D2D1::RectF(left, 267.0F, right, 311.0F);
+    const D2D1_RECT_F vram_graph = D2D1::RectF(left, vram_graph_top, right, vram_graph_bottom);
     DrawGraph(
         render_target_.Get(),
         d2d_factory_.Get(),
@@ -631,9 +663,6 @@ void Renderer::DrawGpuDetail(
             1.0F});
     render_target_->DrawRectangle(vram_graph, separator_brush_.Get(), 1.0F);
 
-    constexpr float stat_gap = 8.0F;
-    const float stat_top = 329.0F;
-    const float stat_bottom = 379.0F;
     const float stat_width = (right - left - (stat_gap * 4.0F)) / 5.0F;
 
     DrawCompactStat(

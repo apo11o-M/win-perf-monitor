@@ -5,7 +5,7 @@
 namespace perfmon::ui {
 
 Layout CalculateLayout(D2D1_SIZE_F client_size, bool expanded) noexcept {
-    constexpr float outer_margin = 10.0F;
+    constexpr float outer_margin = 8.0F;
     constexpr float card_height = 82.0F;
     constexpr float card_gap = 8.0F;
 
