@@ -54,7 +54,15 @@ int Application::Run(int show_command) {
     main_window.Create(show_command);
 
     MSG message{};
-    while (GetMessageW(&message, nullptr, 0, 0) > 0) {
+    while (true) {
+        const BOOL result = GetMessageW(&message, nullptr, 0, 0);
+        if (result == -1) {
+            throw std::runtime_error("GetMessageW failed");
+        }
+        if (result == 0) {
+            break;
+        }
+
         TranslateMessage(&message);
         DispatchMessageW(&message);
     }

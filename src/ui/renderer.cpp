@@ -270,8 +270,15 @@ void Renderer::DiscardDeviceResources() noexcept {
 }
 
 void Renderer::Resize(UINT width, UINT height) {
-    if (render_target_.Get() != nullptr && width > 0 && height > 0) {
-        (void)render_target_->Resize(D2D1::SizeU(width, height));
+    if (render_target_.Get() == nullptr || width == 0 || height == 0) {
+        return;
+    }
+
+    // A resize can fail when the underlying Direct2D target becomes invalid.
+    // Drop device-dependent resources and recreate them on the next paint
+    // rather than leaving a stale render target attached to the window.
+    if (FAILED(render_target_->Resize(D2D1::SizeU(width, height)))) {
+        DiscardDeviceResources();
     }
 }
 
@@ -551,7 +558,7 @@ void Renderer::DrawCpuLogicalProcessorGrid(
                 graph_background_brush_.Get(),
                 nullptr,
                 cpu_brush_.Get(),
-                cpu_fill_brush_.Get(),
+                nullptr,
                 1.0F});
         render_target_->DrawRectangle(cell, separator_brush_.Get(), 1.0F);
 

@@ -3,6 +3,7 @@
 #include <algorithm>
 #include <chrono>
 #include <vector>
+#include <wrl/client.h>
 
 namespace perfmon::ui {
 namespace {
@@ -78,49 +79,44 @@ void DrawSegment(
     }
 
     if (style.fill != nullptr) {
-        ID2D1PathGeometry* raw_fill_geometry = nullptr;
-        if (SUCCEEDED(factory->CreatePathGeometry(&raw_fill_geometry))) {
-            ID2D1GeometrySink* raw_sink = nullptr;
-            if (SUCCEEDED(raw_fill_geometry->Open(&raw_sink))) {
-                raw_sink->BeginFigure(
+        Microsoft::WRL::ComPtr<ID2D1PathGeometry> fill_geometry;
+        if (SUCCEEDED(factory->CreatePathGeometry(fill_geometry.GetAddressOf()))) {
+            Microsoft::WRL::ComPtr<ID2D1GeometrySink> sink;
+            if (SUCCEEDED(fill_geometry->Open(sink.GetAddressOf()))) {
+                sink->BeginFigure(
                     D2D1::Point2F(points.front().x, bounds.bottom),
                     D2D1_FIGURE_BEGIN_FILLED);
                 for (const D2D1_POINT_2F& point : points) {
-                    raw_sink->AddLine(point);
+                    sink->AddLine(point);
                 }
-                raw_sink->AddLine(D2D1::Point2F(points.back().x, bounds.bottom));
-                raw_sink->EndFigure(D2D1_FIGURE_END_CLOSED);
-                if (SUCCEEDED(raw_sink->Close())) {
-                    render_target->FillGeometry(raw_fill_geometry, style.fill);
+                sink->AddLine(D2D1::Point2F(points.back().x, bounds.bottom));
+                sink->EndFigure(D2D1_FIGURE_END_CLOSED);
+                if (SUCCEEDED(sink->Close())) {
+                    render_target->FillGeometry(fill_geometry.Get(), style.fill);
                 }
-                raw_sink->Release();
             }
-            raw_fill_geometry->Release();
         }
     }
 
-    ID2D1PathGeometry* raw_line_geometry = nullptr;
-    if (FAILED(factory->CreatePathGeometry(&raw_line_geometry))) {
+    Microsoft::WRL::ComPtr<ID2D1PathGeometry> line_geometry;
+    if (FAILED(factory->CreatePathGeometry(line_geometry.GetAddressOf()))) {
         return;
     }
 
-    ID2D1GeometrySink* raw_sink = nullptr;
-    if (SUCCEEDED(raw_line_geometry->Open(&raw_sink))) {
-        raw_sink->BeginFigure(points.front(), D2D1_FIGURE_BEGIN_HOLLOW);
+    Microsoft::WRL::ComPtr<ID2D1GeometrySink> sink;
+    if (SUCCEEDED(line_geometry->Open(sink.GetAddressOf()))) {
+        sink->BeginFigure(points.front(), D2D1_FIGURE_BEGIN_HOLLOW);
         for (std::size_t index = 1; index < points.size(); ++index) {
-            raw_sink->AddLine(points[index]);
+            sink->AddLine(points[index]);
         }
-        raw_sink->EndFigure(D2D1_FIGURE_END_OPEN);
-        if (SUCCEEDED(raw_sink->Close())) {
+        sink->EndFigure(D2D1_FIGURE_END_OPEN);
+        if (SUCCEEDED(sink->Close())) {
             render_target->DrawGeometry(
-                raw_line_geometry,
+                line_geometry.Get(),
                 style.line,
                 style.line_width);
         }
-        raw_sink->Release();
     }
-
-    raw_line_geometry->Release();
 }
 
 } // namespace
@@ -148,8 +144,7 @@ void DrawGraph(
     }
 
     // Unavailable samples deliberately break the path instead of connecting
-    // across missing provider data. This will matter once real providers are
-    // introduced in Phases 4 and 5.
+    // across missing provider data.
     std::vector<D2D1_POINT_2F> segment;
     segment.reserve(samples.size());
 

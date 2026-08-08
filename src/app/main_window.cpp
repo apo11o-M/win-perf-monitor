@@ -2,6 +2,7 @@
 
 #include "../monitoring/cpu_provider.hpp"
 #include "../monitoring/nvidia_gpu_provider.hpp"
+#include "resource.h"
 
 #include <algorithm>
 #include <cmath>
@@ -138,6 +139,8 @@ void MainWindow::RegisterWindowClass() const {
     window_class.lpfnWndProc = &MainWindow::WindowProc;
     window_class.hInstance = instance_;
     window_class.hCursor = LoadCursorW(nullptr, IDC_ARROW);
+    window_class.hIcon = LoadIconW(instance_, MAKEINTRESOURCEW(IDI_APP_ICON));
+    window_class.hIconSm = window_class.hIcon;
     window_class.hbrBackground = nullptr;
     window_class.lpszClassName = kWindowClassName;
 
@@ -459,6 +462,64 @@ void MainWindow::HandleDpiChanged(WPARAM w_param, LPARAM l_param) {
 
     // original_collapsed_rect remains untouched. It is the user's pre-expansion
     // anchor and must survive automatic DPI/edge adjustments.
+}
+
+void MainWindow::EnsureWindowVisible() {
+    if (window_ == nullptr) {
+        return;
+    }
+
+    RECT current{};
+    if (GetWindowRect(window_, &current) == FALSE) {
+        return;
+    }
+
+    // Treat the component rail as the usable part of the widget. If any part
+    // of the rail still intersects a connected monitor, preserve the user's
+    // position, including intentional monitor-boundary straddling.
+    const int rail_width = DipToPixels(ui::ComponentRailWidthDip(ui_state_.window_size));
+    const int rail_height = DipToPixels(ui::CollapsedHeightDip(
+        ui_state_.window_size,
+        ui_state_.cpu_visible,
+        ui_state_.gpu_visible));
+    const RECT rail_rect{
+        current.left,
+        current.top,
+        current.left + rail_width,
+        current.top + rail_height};
+
+    if (MonitorFromRect(&rail_rect, MONITOR_DEFAULTTONULL) != nullptr) {
+        return;
+    }
+
+    const POINT preferred{current.left, current.top};
+    const HMONITOR monitor = MonitorFromPoint(preferred, MONITOR_DEFAULTTONEAREST);
+    MONITORINFO monitor_info{};
+    monitor_info.cbSize = sizeof(monitor_info);
+
+    POINT restored = preferred;
+    if (GetMonitorInfoW(monitor, &monitor_info) != FALSE) {
+        const RECT& work = monitor_info.rcWork;
+        restored.x = ClampCoordinate(preferred.x, rail_width, work.left, work.right);
+        restored.y = ClampCoordinate(preferred.y, rail_height, work.top, work.bottom);
+    }
+
+    if (ui_state_.IsExpanded()) {
+        expansion_state_.active = true;
+        expansion_state_.moved_while_expanded = false;
+        expansion_state_.original_collapsed_rect = RECT{
+            restored.x,
+            restored.y,
+            restored.x + DipToPixels(ui::WindowWidthDip(ui_state_.window_size, false)),
+            restored.y + rail_height};
+        expansion_state_.anchor_monitor = monitor;
+        ResizeExpandedFromCollapsedRect(expansion_state_.original_collapsed_rect);
+    } else {
+        SetWindowRectAt(restored, CurrentWindowWidthDip(), CurrentWindowHeightDip());
+    }
+
+    PersistCurrentWindowPosition();
+    InvalidateRect(window_, nullptr, FALSE);
 }
 
 void MainWindow::ApplyAlwaysOnTop() {
@@ -819,6 +880,16 @@ LRESULT MainWindow::HandleMessage(UINT message, WPARAM w_param, LPARAM l_param) 
     case WM_DPICHANGED:
         HandleDpiChanged(w_param, l_param);
         return 0;
+
+    case WM_DISPLAYCHANGE:
+        EnsureWindowVisible();
+        return 0;
+
+    case WM_SETTINGCHANGE:
+        if (w_param == SPI_SETWORKAREA) {
+            EnsureWindowVisible();
+        }
+        break;
 
     case WM_EXITSIZEMOVE:
         PersistCurrentWindowPosition();

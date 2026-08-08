@@ -66,9 +66,19 @@ void Sampler::Run(std::stop_token stop_token) {
         model::SystemSample sample{};
         sample.timestamp = model::SampleClock::now();
         for (const auto& provider : providers_) {
-            provider->Sample(sample);
+            try {
+                provider->Sample(sample);
+            } catch (...) {
+                // A provider is optional telemetry. One unexpected provider
+                // failure must not terminate the sampling thread or the app.
+            }
         }
-        publish_callback_(std::move(sample));
+
+        try {
+            publish_callback_(std::move(sample));
+        } catch (...) {
+            // Keep the sampler alive if a future publish implementation throws.
+        }
 
         const auto interval = Interval();
         next_deadline += interval;

@@ -1,7 +1,7 @@
 cmake_minimum_required(VERSION 3.25)
 
 project(PerformanceMonitor
-    VERSION 0.6.0
+    VERSION 1.0.0
     DESCRIPTION "Lightweight Win32 CPU/GPU performance monitor"
     LANGUAGES CXX RC
 )
@@ -11,6 +11,7 @@ if(NOT WIN32)
 endif()
 
 set(PERFMON_MANIFEST_PATH "${CMAKE_CURRENT_SOURCE_DIR}/resources/app.manifest")
+set(PERFMON_ICON_PATH "${CMAKE_CURRENT_SOURCE_DIR}/resources/app.ico")
 file(MAKE_DIRECTORY "${CMAKE_CURRENT_BINARY_DIR}/generated")
 configure_file(
     resources/app.rc.in
@@ -20,6 +21,9 @@ configure_file(
 
 add_executable(PerformanceMonitor WIN32
     src/main.cpp
+
+    resources/resource.h
+    resources/app.ico
     src/win32_headers.hpp
     src/text_util.hpp
 
@@ -64,6 +68,10 @@ set_target_properties(PerformanceMonitor PROPERTIES
 
 target_compile_features(PerformanceMonitor PRIVATE cxx_std_20)
 
+target_include_directories(PerformanceMonitor PRIVATE
+    "${CMAKE_CURRENT_SOURCE_DIR}/resources"
+)
+
 target_compile_definitions(PerformanceMonitor PRIVATE
     UNICODE
     _UNICODE
@@ -79,12 +87,18 @@ if(MSVC)
         /permissive-
         /EHsc
         /utf-8
+        $<$<CONFIG:Release>:/GL>
     )
 
     # app.rc is the single source of the embedded application manifest.
     # Disable the linker's automatic manifest generation to avoid duplicate
     # type:MANIFEST/name:1 resources (CVT1100/LNK1123).
-    target_link_options(PerformanceMonitor PRIVATE /MANIFEST:NO)
+    target_link_options(PerformanceMonitor PRIVATE
+        /MANIFEST:NO
+        $<$<CONFIG:Release>:/LTCG>
+        $<$<CONFIG:Release>:/OPT:REF>
+        $<$<CONFIG:Release>:/OPT:ICF>
+    )
 endif()
 
 # Native Windows graphics/windowing libraries. These are provided by Windows.

@@ -58,6 +58,7 @@ private:
     void SetWindowRectAt(POINT position, float logical_width, float logical_height);
     void DragWindowFromClientArea();
     void HandleDpiChanged(WPARAM w_param, LPARAM l_param);
+    void EnsureWindowVisible();
 
     void ApplyAlwaysOnTop();
     void ApplyOpacity();
