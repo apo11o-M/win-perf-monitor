@@ -12,4 +12,6 @@ cmake --build --preset windows-release
 .\out\build\windows-vs2022\Release\PerformanceMonitor.exe
 ```
 
+NVML is loaded dynamically from the installed NVIDIA driver; `nvml.lib` is not required.
+
 You may also find the prebuilt release binaries here: [Releases](https://github.com/apo11o-M/win-perf-monitor/releases/)
