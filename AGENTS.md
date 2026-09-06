@@ -10,6 +10,18 @@ Preserve the native Windows architecture unless a task explicitly requests an ar
 
 Release 1.0 is an existing implementation, not a greenfield project. Prefer incremental changes that fit the current design over rewrites.
 
+## Current Implementation Checkpoint
+
+The current working implementation includes three component cards and expandable detail panes:
+
+- CPU: total utilization, per-logical-processor history graphs, processor identity/topology, current speed, process/thread counts, and uptime. Logical-processor graphs use grid lines and intentionally omit per-core number labels.
+- NVIDIA GPU: utilization and dedicated-VRAM history graphs, plus VRAM, temperature, power, and graphics-clock statistics when NVML supports them. Current utilization is shown beside the graph header rather than duplicated in the footer statistics.
+- Memory: physical-memory utilization history; used/available, committed/limit, cached, paged/non-paged pool statistics; and SMBIOS-derived speed, slots-used, and form-factor details when firmware data is available.
+
+The component rail supports independent CPU, GPU, and Memory visibility while preventing all components from being hidden. The context menu exposes 90%, 95%, and 100% opacity choices. Window-size presets and component visibility are persisted.
+
+Layout uses independent `padding_left`, `padding_top`, `padding_right`, and `padding_bottom` values in `ui::LayoutMetrics`. Collapsed window height is derived from the visible card count, card heights/gaps, and the top/bottom padding; do not reintroduce a single ambiguous outer-margin value.
+
 ## Sources of Truth
 
 Use the repository sources for different kinds of information as follows:
@@ -185,6 +197,18 @@ Important constraints:
 
 Do not assume that every NVML metric exists on every NVIDIA GPU/driver combination.
 
+### Memory
+
+The memory provider uses native Windows facilities and keeps Windows queries off the renderer/UI thread:
+
+- `GetPerformanceInfo` supplies physical, commit, kernel-pool, and fallback system-cache values.
+- The Task Manager-oriented Cached value combines the relevant PDH cache, standby-list, and modified-page-list counters when available.
+- `GetSystemFirmwareTable` reads SMBIOS Physical Memory Array and Memory Device records for configured speed, used/total slots, and form factor.
+
+SMBIOS hardware information is static for the application lifetime and is read once during provider initialization, not once per sample. Scope Type 17 Memory Device records to their owning Type 16 system-memory arrays so unrelated firmware memory records are not counted as DIMMs.
+
+Firmware and individual memory counters may be missing or incomplete, especially in virtual machines. Preserve independent availability states, display unavailable values as `—`, and keep dynamic physical-memory monitoring operational when optional SMBIOS or detailed cache data is unavailable.
+
 ## Rendering and UI Rules
 
 The program is intentionally a lightweight desktop widget, not a high-frame-rate application.
@@ -203,6 +227,8 @@ The small component graph and expanded graph should continue to consume the same
 
 Avoid major visual redesigns unless the task explicitly requests them. For small UI changes, follow the existing layout and rendering abstractions.
 
+`Renderer::DrawCompactStat` is shared by CPU, GPU, and Memory detail footers. Its label layout rectangle must remain tall enough for font descenders such as `p`, `g`, and `y`; do not tighten the label/value spacing without visually checking those glyphs.
+
 ## Window and Settings Behavior
 
 Release 1.0 persists small user settings in the current user's Windows Registry. Start-with-Windows uses the current user's standard `Run` key.
@@ -215,6 +241,8 @@ Existing persisted behavior includes items such as:
 - component visibility;
 - window-size preset;
 - start-with-Windows preference.
+
+The supported opacity values are currently 90, 95, and 100 percent. Older persisted 60/80-percent values are migrated to 90 percent during settings sanitization.
 
 No administrator privileges should be required.
 
