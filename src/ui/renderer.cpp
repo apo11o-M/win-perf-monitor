@@ -901,14 +901,18 @@ void Renderer::DrawCompactStat(
     const D2D1_RECT_F& bounds,
     std::wstring_view label,
     std::wstring_view value) {
+    // Leave enough layout height for label descenders (for example, the
+    // lower strokes in "p" and "g") and keep the value below that area.
+    // The previous 14-DIP label rectangle was tighter than Segoe UI's full
+    // line metrics and could visibly cut off those glyphs.
     DrawTextBlock(
         label,
-        D2D1::RectF(bounds.left, bounds.top + 3.0F, bounds.right, bounds.top + 17.0F),
+        D2D1::RectF(bounds.left, bounds.top + 3.0F, bounds.right, bounds.top + 21.0F),
         stat_label_format_.Get(),
         secondary_text_brush_.Get());
     DrawTextBlock(
         value,
-        D2D1::RectF(bounds.left, bounds.top + 20.0F, bounds.right, bounds.bottom),
+        D2D1::RectF(bounds.left, bounds.top + 23.0F, bounds.right, bounds.bottom),
         stat_value_format_.Get(),
         primary_text_brush_.Get());
 }
