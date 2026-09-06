@@ -8,6 +8,7 @@ enum class Component {
     None,
     Cpu,
     Gpu,
+    Memory,
 };
 
 enum class WindowSizePreset {
@@ -21,6 +22,7 @@ struct UiState {
     Component hovered = Component::None;
     bool cpu_visible = true;
     bool gpu_visible = true;
+    bool memory_visible = true;
     WindowSizePreset window_size = WindowSizePreset::Medium;
 
     [[nodiscard]] bool IsExpanded() const noexcept {
@@ -33,6 +35,8 @@ struct UiState {
             return cpu_visible;
         case Component::Gpu:
             return gpu_visible;
+        case Component::Memory:
+            return memory_visible;
         case Component::None:
         default:
             return false;
@@ -41,7 +45,8 @@ struct UiState {
 
     [[nodiscard]] std::size_t VisibleComponentCount() const noexcept {
         return static_cast<std::size_t>(cpu_visible) +
-               static_cast<std::size_t>(gpu_visible);
+               static_cast<std::size_t>(gpu_visible) +
+               static_cast<std::size_t>(memory_visible);
     }
 };
 

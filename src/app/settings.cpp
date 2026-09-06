@@ -15,6 +15,7 @@ constexpr wchar_t kAlwaysOnTopValue[] = L"AlwaysOnTop";
 constexpr wchar_t kOpacityValue[] = L"OpacityPercent";
 constexpr wchar_t kShowCpuValue[] = L"ShowCpu";
 constexpr wchar_t kShowGpuValue[] = L"ShowGpu";
+constexpr wchar_t kShowMemoryValue[] = L"ShowMemory";
 constexpr wchar_t kWindowSizeValue[] = L"WindowSize";
 constexpr wchar_t kStartWithWindowsValue[] = L"StartWithWindows";
 constexpr wchar_t kWindowXValue[] = L"WindowX";
@@ -50,10 +51,15 @@ void WriteDword(HKEY key, const wchar_t* name, DWORD value) noexcept {
 
 [[nodiscard]] int SanitizeOpacity(DWORD value) noexcept {
     switch (value) {
-    case 60:
-    case 80:
+    case 90:
+    case 95:
     case 100:
         return static_cast<int>(value);
+    case 60:
+    case 80:
+        // Migrate the previous opacity choices to the closest supported
+        // translucent setting instead of unexpectedly making the widget opaque.
+        return 90;
     default:
         return 100;
     }
@@ -107,7 +113,10 @@ AppSettings SettingsStore::Load() const noexcept {
     if (ReadDword(key, kShowGpuValue, value)) {
         settings.show_gpu = value != 0;
     }
-    if (!settings.show_cpu && !settings.show_gpu) {
+    if (ReadDword(key, kShowMemoryValue, value)) {
+        settings.show_memory = value != 0;
+    }
+    if (!settings.show_cpu && !settings.show_gpu && !settings.show_memory) {
         settings.show_cpu = true;
     }
     if (ReadDword(key, kWindowSizeValue, value)) {
@@ -155,6 +164,7 @@ void SettingsStore::Save(const AppSettings& settings) const noexcept {
     WriteDword(key, kOpacityValue, static_cast<DWORD>(settings.opacity_percent));
     WriteDword(key, kShowCpuValue, BoolToDword(settings.show_cpu));
     WriteDword(key, kShowGpuValue, BoolToDword(settings.show_gpu));
+    WriteDword(key, kShowMemoryValue, BoolToDword(settings.show_memory));
     WriteDword(key, kWindowSizeValue, static_cast<DWORD>(settings.window_size));
     WriteDword(key, kStartWithWindowsValue, BoolToDword(settings.start_with_windows));
     WriteDword(key, kHasWindowPositionValue, BoolToDword(settings.has_window_position));

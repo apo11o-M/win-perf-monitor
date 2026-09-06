@@ -9,12 +9,13 @@ namespace perfmon::ui {
 
 struct LayoutMetrics {
     float collapsed_width = 195.0F;
-    float collapsed_height = 200.0F;
-    float single_component_collapsed_height = 110.0F;
     float expanded_width = 660.0F;
     float expanded_height = 480.0F;
     float component_rail_width = 195.0F;
-    float outer_margin = 8.0F;
+    float padding_left = 5.0F;
+    float padding_top = 6.0F;
+    float padding_right = 5.0F;
+    float padding_bottom = 6.0F;
     float card_height = 82.0F;
     float card_gap = 8.0F;
 };
@@ -24,6 +25,7 @@ struct Layout {
     D2D1_RECT_F component_rail{};
     D2D1_RECT_F cpu_card{};
     D2D1_RECT_F gpu_card{};
+    D2D1_RECT_F memory_card{};
     D2D1_RECT_F detail_pane{};
 };
 
@@ -31,13 +33,15 @@ struct Layout {
 [[nodiscard]] float CollapsedHeightDip(
     WindowSizePreset preset,
     bool show_cpu,
-    bool show_gpu) noexcept;
+    bool show_gpu,
+    bool show_memory) noexcept;
 [[nodiscard]] float WindowWidthDip(WindowSizePreset preset, bool expanded) noexcept;
 [[nodiscard]] float WindowHeightDip(
     WindowSizePreset preset,
     bool expanded,
     bool show_cpu,
-    bool show_gpu) noexcept;
+    bool show_gpu,
+    bool show_memory) noexcept;
 [[nodiscard]] float ComponentRailWidthDip(WindowSizePreset preset) noexcept;
 
 [[nodiscard]] Layout CalculateLayout(

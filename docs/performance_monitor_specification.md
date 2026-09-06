@@ -17,12 +17,13 @@ Performance Monitor is a lightweight Windows desktop widget for viewing the curr
 
 The application is inspired by the **Performance** tab in Windows 11 Task Manager, but it is intentionally smaller, simpler, and optimized for quick at-a-glance monitoring rather than detailed system diagnosis or profiling.
 
-The application will initially focus on:
+The application currently includes:
 
 - CPU utilization
 - NVIDIA GPU utilization and related GPU statistics
+- Physical memory utilization and related system-memory statistics
 
-Memory and disk monitoring will be added in later phases.
+Disk monitoring will be added in a later phase.
 
 The program is intended for personal use on one known desktop configuration. Broad hardware compatibility is desirable when it is inexpensive to support, but it is not a requirement for the initial versions.
 
@@ -158,10 +159,11 @@ Initial providers:
 
 - Windows system APIs for CPU information and total CPU utilization
 - NVIDIA Management Library, or NVML, for GPU metrics
+- Windows system APIs and SMBIOS firmware data for memory metrics and hardware
+  information
 
 Later providers:
 
-- Windows memory APIs for physical memory usage
 - Windows Performance Data Helper, or PDH, counters for disk utilization and throughput
 
 ### 5.5 GPU Integration
@@ -290,14 +292,14 @@ The detail pane is hidden while the application is collapsed. Selecting a compon
 
 The collapsed window contains only the component rail.
 
-Initial component cards:
+Current component cards:
 
 - CPU
 - GPU
+- Memory
 
 Future component cards:
 
-- Memory
 - Disk 0
 - Disk 1
 - Additional components if later approved
@@ -584,25 +586,78 @@ They may require Windows GPU performance counters or other Windows graphics tele
 
 ---
 
-## 10. Future Memory Monitoring
+## 10. Memory Monitoring Specification
 
-Memory monitoring is planned after CPU and GPU are stable.
+## 10.1 Memory Metrics
 
-Potential metrics:
+The memory provider collects:
 
 - Physical memory used
 - Physical memory available
-- Total physical memory
-- Used percentage
-- Committed memory
+- Total physical memory usable by Windows
+- Physical-memory utilization percentage
+- Current committed memory
 - Commit limit
 - Cached memory
 - Paged pool
 - Non-paged pool
+- Configured memory speed
+- Used and available memory-device slots
+- Memory-device form factor
 
-The initial memory card would likely use physical-memory utilization percentage as its primary graph.
+Physical memory used is calculated as total physical memory minus available
+physical memory. Utilization percentage is used divided by total, clamped to
+0–100%. Available memory includes pages Windows can reuse immediately, such as
+standby, free, and zero pages.
 
-Memory monitoring should use native Windows memory APIs when possible.
+Committed memory represents the system commit charge, not page-file usage. The
+commit limit is the maximum system commit supported by physical memory and the
+configured page files at that time.
+
+Cached memory should follow the Task Manager-oriented definition by combining
+the Windows cache, standby-cache, and modified-page-list performance counters.
+If those optional counters are unavailable, the documented system-cache value
+may be used as a graceful fallback.
+
+Paged and non-paged pool values represent their respective kernel memory pools.
+Compressed-memory reporting is outside the initial Memory scope.
+
+The provider uses native Windows APIs. `GetPerformanceInfo` supplies physical,
+commit, system-cache fallback, and kernel-pool values. PDH supplies the counters
+needed for the Task Manager-style Cached value. `GetSystemFirmwareTable` reads
+SMBIOS Physical Memory Array and Memory Device records once at provider startup
+for speed, slot counts, and form factor. All metrics retain independent
+availability states.
+
+## 10.2 Memory Component Card
+
+The collapsed Memory card displays:
+
+- `Memory`
+- Current physical-memory utilization percentage
+- Small 60-second utilization graph
+- Used and total physical memory, formatted like `31.2 / 63.8 GB`
+
+## 10.3 Memory Detail Pane
+
+The Memory detail pane displays:
+
+- Large 60-second physical-memory utilization graph
+- Current utilization percentage
+- Total physical memory usable by Windows
+- Two rows of statistics with labels above their values
+
+Statistic layout:
+
+- Row 1: In use / available; Speed; Slots used; Form factor
+- Row 2: Committed; Cached; Paged / non-paged pool
+
+In use is formatted as used physical memory divided by available physical
+memory, such as `10.7/13.2 GB`. Committed is formatted as current commit divided
+by commit limit, such as `61.1 / 73.5 GB`. Paged and non-paged pool are similarly
+combined beneath one label. Speed uses `MT/s`, slots use `used of total`, and the
+form factor follows SMBIOS (for example, `DIMM` or `SODIMM`). Unsupported or
+temporarily unavailable values display `—`.
 
 ---
 
@@ -644,16 +699,17 @@ Manual drive assignment may be provided if automatic matching proves unreliable.
 
 Right-clicking the window should open an application context menu.
 
-Initial menu items:
+Current menu items:
 
 - Always on top
 - Opacity
-  - 60%
-  - 80%
+  - 90%
+  - 95%
   - 100%
 - Component visibility
   - Show CPU
   - Show GPU
+  - Show Memory
 - Window size
   - Small
   - Medium
@@ -664,7 +720,6 @@ Initial menu items:
 
 Future component visibility entries:
 
-- Show Memory
 - Show Disk 0
 - Show Disk 1
 
@@ -1222,6 +1277,10 @@ Exit criteria:
 
 ## Phase 8 — Memory Monitoring
 
+**Implementation status:** Implemented in source after Release 1.0. Final visual
+comparison against the target Windows 11 Task Manager view remains part of
+release validation.
+
 Deliverables:
 
 - Memory provider
@@ -1333,6 +1392,21 @@ Release 1.0 is complete when all of the following are true:
 
 ---
 
+## 27.1 Post-1.0 Memory Feature Acceptance Criteria
+
+- Physical-memory utilization updates at the fixed one-second interval.
+- The Memory card and detail pane share the same retained utilization history.
+- In-use, available, total, committed, cached, paged-pool, and non-paged-pool
+  values display correctly.
+- Speed, slots used, and form factor display when the firmware exposes valid
+  SMBIOS memory-device data and degrade to `—` otherwise.
+- Committed and pool pairs use slash-separated values in the two-row statistic
+  layout.
+- Values broadly track the Windows Task Manager Memory performance view.
+- Memory-provider failure does not stop CPU or GPU monitoring.
+
+---
+
 ## 28. Open Design Questions
 
 The following decisions may be finalized during UI prototyping:
@@ -1366,7 +1440,9 @@ These questions do not block the project skeleton or initial static UI work.
 - Develop primarily through VS Code.
 - Produce a single portable executable.
 - Start with CPU and GPU.
-- Add memory and disks later.
+- Add Memory after CPU and GPU, using native Windows performance information
+  and a Task Manager-style Cached definition.
+- Add disks after Memory.
 - Use vertically stacked component cards.
 - Show a small graph on each component card.
 - Expand the selected component rightward.
@@ -1392,7 +1468,6 @@ These questions do not block the project skeleton or initial static UI work.
 
 - CPU per-core graphs
 - GPU engine breakdown
-- Memory detail metrics
 - Disk data source and stable identity mechanism
 - Theme customization
 - Logging

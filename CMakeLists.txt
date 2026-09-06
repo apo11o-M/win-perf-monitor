@@ -2,7 +2,7 @@ cmake_minimum_required(VERSION 3.25)
 
 project(PerformanceMonitor
     VERSION 1.0.0
-    DESCRIPTION "Lightweight Win32 CPU/GPU performance monitor"
+    DESCRIPTION "Lightweight Win32 CPU/GPU/memory performance monitor"
     LANGUAGES CXX RC
 )
 
@@ -43,6 +43,8 @@ add_executable(PerformanceMonitor WIN32
     src/monitoring/component_provider.hpp
     src/monitoring/cpu_provider.cpp
     src/monitoring/cpu_provider.hpp
+    src/monitoring/memory_provider.cpp
+    src/monitoring/memory_provider.hpp
     src/monitoring/nvidia_gpu_provider.cpp
     src/monitoring/nvidia_gpu_provider.hpp
     src/monitoring/sample_mailbox.hpp
@@ -149,7 +151,7 @@ else()
     endif()
 endif()
 
-option(PERFMON_BUILD_TESTS "Build lightweight model tests" OFF)
+option(PERFMON_BUILD_TESTS "Build lightweight model and provider tests" OFF)
 if(PERFMON_BUILD_TESTS)
     enable_testing()
     add_executable(PerformanceMonitorHistoryTests
@@ -160,6 +162,22 @@ if(PERFMON_BUILD_TESTS)
         target_compile_options(PerformanceMonitorHistoryTests PRIVATE /W4 /permissive- /EHsc /utf-8)
     endif()
     add_test(NAME history_buffer COMMAND PerformanceMonitorHistoryTests)
+
+    add_executable(PerformanceMonitorMemoryProviderTests
+        tests/memory_provider_tests.cpp
+        src/monitoring/memory_provider.cpp
+        src/monitoring/memory_provider.hpp
+        src/monitoring/component_provider.hpp
+        src/model/metric_value.hpp
+        src/model/system_sample.hpp
+        src/win32_headers.hpp
+    )
+    target_compile_features(PerformanceMonitorMemoryProviderTests PRIVATE cxx_std_20)
+    target_link_libraries(PerformanceMonitorMemoryProviderTests PRIVATE pdh psapi)
+    if(MSVC)
+        target_compile_options(PerformanceMonitorMemoryProviderTests PRIVATE /W4 /permissive- /EHsc /utf-8)
+    endif()
+    add_test(NAME memory_provider COMMAND PerformanceMonitorMemoryProviderTests)
 endif()
 
 install(TARGETS PerformanceMonitor RUNTIME DESTINATION .)

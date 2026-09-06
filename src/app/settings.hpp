@@ -13,6 +13,7 @@ struct AppSettings {
     int opacity_percent = 100;
     bool show_cpu = true;
     bool show_gpu = true;
+    bool show_memory = true;
     ui::WindowSizePreset window_size = ui::WindowSizePreset::Medium;
     bool start_with_windows = false;
 

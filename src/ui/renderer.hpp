@@ -56,6 +56,9 @@ private:
     void DrawGpuDetail(
         const D2D1_RECT_F& bounds,
         const model::PerformanceSnapshot& performance);
+    void DrawMemoryDetail(
+        const D2D1_RECT_F& bounds,
+        const model::PerformanceSnapshot& performance);
     void DrawCompactStat(
         const D2D1_RECT_F& bounds,
         std::wstring_view label,
@@ -76,7 +79,6 @@ private:
     Microsoft::WRL::ComPtr<IDWriteTextFormat> detail_title_format_;
     Microsoft::WRL::ComPtr<IDWriteTextFormat> detail_subtitle_format_;
     Microsoft::WRL::ComPtr<IDWriteTextFormat> graph_label_format_;
-    Microsoft::WRL::ComPtr<IDWriteTextFormat> logical_graph_label_format_;
     Microsoft::WRL::ComPtr<IDWriteTextFormat> stat_label_format_;
     Microsoft::WRL::ComPtr<IDWriteTextFormat> stat_value_format_;
 
@@ -96,6 +98,8 @@ private:
     Microsoft::WRL::ComPtr<ID2D1SolidColorBrush> cpu_fill_brush_;
     Microsoft::WRL::ComPtr<ID2D1SolidColorBrush> gpu_brush_;
     Microsoft::WRL::ComPtr<ID2D1SolidColorBrush> gpu_fill_brush_;
+    Microsoft::WRL::ComPtr<ID2D1SolidColorBrush> memory_brush_;
+    Microsoft::WRL::ComPtr<ID2D1SolidColorBrush> memory_fill_brush_;
 };
 
 } // namespace perfmon::ui

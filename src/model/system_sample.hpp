@@ -61,10 +61,33 @@ struct GpuSample {
     GpuInfo info{};
 };
 
+struct MemoryInfo {
+    MetricValue used_gib{};
+    MetricValue available_gib{};
+    MetricValue total_gib{};
+    MetricValue committed_gib{};
+    MetricValue commit_limit_gib{};
+    MetricValue cached_gib{};
+    MetricValue paged_pool_gib{};
+    MetricValue non_paged_pool_gib{};
+
+    // Static hardware details read from SMBIOS once when the provider starts.
+    std::optional<std::uint32_t> speed_mtps{};
+    std::optional<std::uint32_t> slots_used{};
+    std::optional<std::uint32_t> slots_total{};
+    std::wstring form_factor{};
+};
+
+struct MemorySample {
+    MetricValue total_utilization{};
+    MemoryInfo info{};
+};
+
 struct SystemSample {
     SampleTime timestamp{};
     CpuSample cpu{};
     GpuSample gpu{};
+    MemorySample memory{};
 };
 
 } // namespace perfmon::model

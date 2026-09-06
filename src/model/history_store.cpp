@@ -57,7 +57,8 @@ HistoryStore::HistoryStore(HistorySettings settings)
     : settings_(settings),
       cpu_total_(settings.RequiredCapacity()),
       gpu_total_(settings.RequiredCapacity()),
-      gpu_memory_(settings.RequiredCapacity()) {}
+      gpu_memory_(settings.RequiredCapacity()),
+      memory_total_(settings.RequiredCapacity()) {}
 
 void HistoryStore::EnsureLogicalProcessorHistories(std::size_t count) {
     const std::size_t capacity = settings_.RequiredCapacity();
@@ -70,6 +71,7 @@ void HistoryStore::Push(const SystemSample& sample) {
     cpu_total_.Push(sample.timestamp, sample.cpu.total_utilization);
     gpu_total_.Push(sample.timestamp, sample.gpu.total_utilization);
     gpu_memory_.Push(sample.timestamp, sample.gpu.memory_utilization);
+    memory_total_.Push(sample.timestamp, sample.memory.total_utilization);
 
     EnsureLogicalProcessorHistories(sample.cpu.logical_processor_utilization.size());
     for (std::size_t index = 0; index < cpu_logical_processors_.size(); ++index) {
@@ -81,6 +83,7 @@ void HistoryStore::Push(const SystemSample& sample) {
 
     latest_cpu_info_ = sample.cpu.info;
     latest_gpu_info_ = sample.gpu.info;
+    latest_memory_info_ = sample.memory.info;
     latest_timestamp_ = sample.timestamp;
     has_sample_ = true;
 }
@@ -111,6 +114,8 @@ PerformanceSnapshot HistoryStore::Snapshot() const {
     result.gpu_total = gpu_total_.SnapshotSince(result.window_start);
     result.gpu_memory = gpu_memory_.SnapshotSince(result.window_start);
     result.gpu_info = latest_gpu_info_;
+    result.memory_total = memory_total_.SnapshotSince(result.window_start);
+    result.memory_info = latest_memory_info_;
 
     result.cpu_logical_processors.reserve(cpu_logical_processors_.size());
     for (const MetricHistory& history : cpu_logical_processors_) {

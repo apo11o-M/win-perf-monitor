@@ -119,6 +119,65 @@ std::wstring FormatVramUsed(const model::GpuInfo& info) {
     return stream.str();
 }
 
+std::wstring FormatMemoryGib(const model::MetricValue& metric) {
+    if (!metric.HasValue()) {
+        return L"—";
+    }
+
+    std::wostringstream stream;
+    stream << std::fixed << std::setprecision(1) << metric.value << L" GB";
+    return stream.str();
+}
+
+std::wstring FormatMemoryPair(
+    const model::MetricValue& first,
+    const model::MetricValue& second) {
+    if (!first.HasValue() || !second.HasValue()) {
+        return L"—";
+    }
+
+    std::wostringstream stream;
+    stream << std::fixed << std::setprecision(1)
+           << first.value << L" / " << second.value << L" GB";
+    return stream.str();
+}
+
+std::wstring FormatMemoryPairCompact(
+    const model::MetricValue& first,
+    const model::MetricValue& second) {
+    if (!first.HasValue() || !second.HasValue()) {
+        return L"—";
+    }
+
+    std::wostringstream stream;
+    stream << std::fixed << std::setprecision(1)
+           << first.value << L"/" << second.value << L" GB";
+    return stream.str();
+}
+
+std::wstring FormatMemorySpeed(const std::optional<std::uint32_t>& speed_mtps) {
+    return speed_mtps.has_value()
+        ? std::to_wstring(*speed_mtps) + L" MT/s"
+        : L"—";
+}
+
+std::wstring FormatMemorySlots(
+    const std::optional<std::uint32_t>& used,
+    const std::optional<std::uint32_t>& total) {
+    if (!used.has_value() || !total.has_value()) {
+        return L"—";
+    }
+    return std::to_wstring(*used) + L" of " + std::to_wstring(*total);
+}
+
+std::wstring FormatMemoryFormFactor(const std::wstring& form_factor) {
+    return form_factor.empty() ? L"—" : form_factor;
+}
+
+std::wstring MemoryCardSubtitle(const model::MemoryInfo& info) {
+    return FormatMemoryPair(info.used_gib, info.total_gib);
+}
+
 std::wstring FormatTemperature(const model::MetricValue& metric) {
     if (!metric.HasValue()) {
         return L"—";
@@ -201,7 +260,6 @@ void Renderer::CreateTextFormats() {
         detail_subtitle_format_->SetTextAlignment(DWRITE_TEXT_ALIGNMENT_TRAILING),
         "SetTextAlignment failed");
     graph_label_format_ = CreateTextFormat(dwrite_factory_.Get(), 11.5F, DWRITE_FONT_WEIGHT_SEMI_BOLD);
-    logical_graph_label_format_ = CreateTextFormat(dwrite_factory_.Get(), 11.0F, DWRITE_FONT_WEIGHT_SEMI_BOLD);
     stat_label_format_ = CreateTextFormat(dwrite_factory_.Get(), 11.5F, DWRITE_FONT_WEIGHT_NORMAL);
     stat_value_format_ = CreateTextFormat(dwrite_factory_.Get(), 12.5F, DWRITE_FONT_WEIGHT_SEMI_BOLD);
 }
@@ -248,9 +306,13 @@ void Renderer::EnsureDeviceResources(HWND window, float dpi) {
     make_brush(D2D1::ColorF(0.27F, 0.68F, 0.95F, 0.14F), cpu_fill_brush_);
     make_brush(D2D1::ColorF(0.40F, 0.82F, 0.48F, 1.0F), gpu_brush_);
     make_brush(D2D1::ColorF(0.40F, 0.82F, 0.48F, 0.14F), gpu_fill_brush_);
+    make_brush(D2D1::ColorF(0.72F, 0.50F, 0.96F, 1.0F), memory_brush_);
+    make_brush(D2D1::ColorF(0.72F, 0.50F, 0.96F, 0.14F), memory_fill_brush_);
 }
 
 void Renderer::DiscardDeviceResources() noexcept {
+    memory_fill_brush_.Reset();
+    memory_brush_.Reset();
     gpu_fill_brush_.Reset();
     gpu_brush_.Reset();
     cpu_fill_brush_.Reset();
@@ -314,6 +376,8 @@ void Renderer::Draw(
             DrawCpuDetail(layout.detail_pane, performance);
         } else if (state.selected == Component::Gpu) {
             DrawGpuDetail(layout.detail_pane, performance);
+        } else if (state.selected == Component::Memory) {
+            DrawMemoryDetail(layout.detail_pane, performance);
         }
     }
 
@@ -353,6 +417,18 @@ void Renderer::DrawComponentRail(
             L"GPU",
             gpu_subtitle);
     }
+
+    if (state.memory_visible) {
+        const std::wstring memory_subtitle = MemoryCardSubtitle(performance.memory_info);
+        DrawComponentCard(
+            layout.memory_card,
+            Component::Memory,
+            state,
+            performance.memory_total,
+            performance,
+            L"Memory",
+            memory_subtitle);
+    }
 }
 
 void Renderer::DrawComponentCard(
@@ -372,12 +448,15 @@ void Renderer::DrawComponentCard(
 
     render_target_->FillRoundedRectangle(Rounded(bounds), background);
 
-    ID2D1SolidColorBrush* accent = component == Component::Cpu
-        ? cpu_brush_.Get()
-        : gpu_brush_.Get();
-    ID2D1Brush* fill = component == Component::Cpu
-        ? static_cast<ID2D1Brush*>(cpu_fill_brush_.Get())
-        : static_cast<ID2D1Brush*>(gpu_fill_brush_.Get());
+    ID2D1SolidColorBrush* accent = gpu_brush_.Get();
+    ID2D1Brush* fill = gpu_fill_brush_.Get();
+    if (component == Component::Cpu) {
+        accent = cpu_brush_.Get();
+        fill = cpu_fill_brush_.Get();
+    } else if (component == Component::Memory) {
+        accent = memory_brush_.Get();
+        fill = memory_fill_brush_.Get();
+    }
 
     render_target_->FillRoundedRectangle(
         Rounded(D2D1::RectF(bounds.left, bounds.top, bounds.left + 4.0F, bounds.bottom), 2.0F),
@@ -556,17 +635,12 @@ void Renderer::DrawCpuLogicalProcessorGrid(
             performance.window_end,
             GraphStyle{
                 graph_background_brush_.Get(),
-                nullptr,
+                grid_brush_.Get(),
                 cpu_brush_.Get(),
                 nullptr,
                 1.0F});
         render_target_->DrawRectangle(cell, separator_brush_.Get(), 1.0F);
 
-        DrawTextBlock(
-            std::to_wstring(index),
-            D2D1::RectF(cell.left + 3.0F, cell.top + 2.0F, cell.right - 2.0F, cell.top + 13.0F),
-            logical_graph_label_format_.Get(),
-            secondary_text_brush_.Get());
     }
 }
 
@@ -700,6 +774,132 @@ void Renderer::DrawGpuDetail(
                     right, stat_bottom),
         L"GPU clock",
         FormatMegahertz(performance.gpu_info.graphics_clock_mhz));
+}
+
+void Renderer::DrawMemoryDetail(
+    const D2D1_RECT_F& bounds,
+    const model::PerformanceSnapshot& performance) {
+    const float left = bounds.left + 22.0F;
+    const float right = bounds.right - 22.0F;
+
+    DrawTextBlock(
+        L"Memory",
+        D2D1::RectF(left, 15.0F, left + 110.0F, 48.0F),
+        detail_title_format_.Get(),
+        primary_text_brush_.Get());
+    DrawTextBlock(
+        FormatMemoryGib(performance.memory_info.total_gib),
+        D2D1::RectF(left + 120.0F, 19.0F, right, 43.0F),
+        detail_subtitle_format_.Get(),
+        secondary_text_brush_.Get());
+
+    DrawTextBlock(
+        L"Memory usage",
+        D2D1::RectF(left, 54.0F, right - 75.0F, 70.0F),
+        graph_label_format_.Get(),
+        secondary_text_brush_.Get());
+    DrawTextBlock(
+        FormatPercentage(performance.memory_total.latest),
+        D2D1::RectF(right - 75.0F, 54.0F, right, 70.0F),
+        detail_subtitle_format_.Get(),
+        subtle_text_brush_.Get());
+
+    constexpr float column_gap = 6.0F;
+    constexpr float row_gap = 6.0F;
+    constexpr float stat_height = 50.0F;
+    constexpr float graph_to_stats_gap = 12.0F;
+
+    const float second_row_bottom = bounds.bottom - 11.0F;
+    const float second_row_top = second_row_bottom - stat_height;
+    const float first_row_bottom = second_row_top - row_gap;
+    const float first_row_top = first_row_bottom - stat_height;
+
+    const D2D1_RECT_F graph_bounds = D2D1::RectF(
+        left,
+        73.0F,
+        right,
+        first_row_top - graph_to_stats_gap);
+    DrawGraph(
+        render_target_.Get(),
+        d2d_factory_.Get(),
+        graph_bounds,
+        performance.memory_total.samples,
+        performance.window_start,
+        performance.window_end,
+        GraphStyle{
+            graph_background_brush_.Get(),
+            grid_brush_.Get(),
+            memory_brush_.Get(),
+            memory_fill_brush_.Get(),
+            1.5F});
+    render_target_->DrawRectangle(graph_bounds, separator_brush_.Get(), 1.0F);
+
+    // The used/available pair benefits from a little extra room; divide the
+    // remainder evenly among the static SMBIOS hardware details.
+    constexpr std::size_t first_row_count = 4;
+    const float first_row_usable_width =
+        right - left - (column_gap * static_cast<float>(first_row_count - 1));
+    const float in_use_width = first_row_usable_width * 0.34F;
+    const float hardware_width = (first_row_usable_width - in_use_width) / 3.0F;
+    const auto first_row_bounds = [&](std::size_t index) {
+        const float stat_left = index == 0
+            ? left
+            : left + in_use_width + column_gap +
+                  static_cast<float>(index - 1) * (hardware_width + column_gap);
+        const float stat_width = index == 0 ? in_use_width : hardware_width;
+        return D2D1::RectF(
+            stat_left,
+            first_row_top,
+            index + 1 == first_row_count ? right : stat_left + stat_width,
+            first_row_bottom);
+    };
+
+    DrawCompactStat(
+        first_row_bounds(0),
+        L"In use",
+        FormatMemoryPairCompact(
+            performance.memory_info.used_gib,
+            performance.memory_info.available_gib));
+    DrawCompactStat(
+        first_row_bounds(1),
+        L"Speed",
+        FormatMemorySpeed(performance.memory_info.speed_mtps));
+    DrawCompactStat(
+        first_row_bounds(2),
+        L"Slots used",
+        FormatMemorySlots(
+            performance.memory_info.slots_used,
+            performance.memory_info.slots_total));
+    DrawCompactStat(
+        first_row_bounds(3),
+        L"Form factor",
+        FormatMemoryFormFactor(performance.memory_info.form_factor));
+
+    const float second_row_width = (right - left - (column_gap * 2.0F)) / 3.0F;
+    DrawCompactStat(
+        D2D1::RectF(left, second_row_top, left + second_row_width, second_row_bottom),
+        L"Committed",
+        FormatMemoryPair(
+            performance.memory_info.committed_gib,
+            performance.memory_info.commit_limit_gib));
+    DrawCompactStat(
+        D2D1::RectF(
+            left + second_row_width + column_gap,
+            second_row_top,
+            left + (second_row_width * 2.0F) + column_gap,
+            second_row_bottom),
+        L"Cached",
+        FormatMemoryGib(performance.memory_info.cached_gib));
+    DrawCompactStat(
+        D2D1::RectF(
+            left + (second_row_width * 2.0F) + (column_gap * 2.0F),
+            second_row_top,
+            right,
+            second_row_bottom),
+        L"Paged / non-paged",
+        FormatMemoryPair(
+            performance.memory_info.paged_pool_gib,
+            performance.memory_info.non_paged_pool_gib));
 }
 
 void Renderer::DrawCompactStat(

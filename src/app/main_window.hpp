@@ -32,11 +32,12 @@ public:
 
 private:
     static constexpr UINT_PTR kAlwaysOnTopMenuId = 100;
-    static constexpr UINT_PTR kOpacity60MenuId = 110;
-    static constexpr UINT_PTR kOpacity80MenuId = 111;
+    static constexpr UINT_PTR kOpacity90MenuId = 110;
+    static constexpr UINT_PTR kOpacity95MenuId = 111;
     static constexpr UINT_PTR kOpacity100MenuId = 112;
     static constexpr UINT_PTR kShowCpuMenuId = 120;
     static constexpr UINT_PTR kShowGpuMenuId = 121;
+    static constexpr UINT_PTR kShowMemoryMenuId = 122;
     static constexpr UINT_PTR kWindowSmallMenuId = 130;
     static constexpr UINT_PTR kWindowMediumMenuId = 131;
     static constexpr UINT_PTR kWindowLargeMenuId = 132;

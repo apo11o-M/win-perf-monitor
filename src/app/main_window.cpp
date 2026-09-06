@@ -1,6 +1,7 @@
 #include "main_window.hpp"
 
 #include "../monitoring/cpu_provider.hpp"
+#include "../monitoring/memory_provider.hpp"
 #include "../monitoring/nvidia_gpu_provider.hpp"
 #include "resource.h"
 
@@ -56,6 +57,7 @@ void MainWindow::Create(int show_command) {
     settings_ = settings_store_.Load();
     ui_state_.cpu_visible = settings_.show_cpu;
     ui_state_.gpu_visible = settings_.show_gpu;
+    ui_state_.memory_visible = settings_.show_memory;
     ui_state_.window_size = settings_.window_size;
 
     // Keep the Run-key entry synchronized with the persisted preference. When
@@ -169,7 +171,8 @@ float MainWindow::CurrentWindowHeightDip() const noexcept {
         ui_state_.window_size,
         ui_state_.IsExpanded(),
         ui_state_.cpu_visible,
-        ui_state_.gpu_visible);
+        ui_state_.gpu_visible,
+        ui_state_.memory_visible);
 }
 
 POINT MainWindow::PersistentWindowPosition() const noexcept {
@@ -198,7 +201,8 @@ POINT MainWindow::ComponentRailAnchorPoint(const RECT& window_rect) const noexce
     const int collapsed_height = DipToPixels(ui::CollapsedHeightDip(
         ui_state_.window_size,
         ui_state_.cpu_visible,
-        ui_state_.gpu_visible));
+        ui_state_.gpu_visible,
+        ui_state_.memory_visible));
 
     return POINT{
         window_rect.left + (rail_width / 2),
@@ -334,7 +338,8 @@ void MainWindow::ResizeExpandedFromCollapsedRect(const RECT& collapsed_rect) {
         ui_state_.window_size,
         true,
         ui_state_.cpu_visible,
-        ui_state_.gpu_visible));
+        ui_state_.gpu_visible,
+        ui_state_.memory_visible));
 
     MONITORINFO monitor_info{};
     monitor_info.cbSize = sizeof(monitor_info);
@@ -481,7 +486,8 @@ void MainWindow::EnsureWindowVisible() {
     const int rail_height = DipToPixels(ui::CollapsedHeightDip(
         ui_state_.window_size,
         ui_state_.cpu_visible,
-        ui_state_.gpu_visible));
+        ui_state_.gpu_visible,
+        ui_state_.memory_visible));
     const RECT rail_rect{
         current.left,
         current.top,
@@ -583,6 +589,9 @@ void MainWindow::ToggleComponentVisibility(ui::Component component) {
     } else if (component == ui::Component::Gpu) {
         ui_state_.gpu_visible = !ui_state_.gpu_visible;
         settings_.show_gpu = ui_state_.gpu_visible;
+    } else if (component == ui::Component::Memory) {
+        ui_state_.memory_visible = !ui_state_.memory_visible;
+        settings_.show_memory = ui_state_.memory_visible;
     }
 
     if (!ui_state_.IsVisible(ui_state_.hovered)) {
@@ -594,6 +603,8 @@ void MainWindow::ToggleComponentVisibility(ui::Component component) {
             ui_state_.selected = ui::Component::Cpu;
         } else if (ui_state_.gpu_visible) {
             ui_state_.selected = ui::Component::Gpu;
+        } else if (ui_state_.memory_visible) {
+            ui_state_.selected = ui::Component::Memory;
         } else {
             ui_state_.selected = ui::Component::None;
         }
@@ -632,7 +643,8 @@ void MainWindow::SetWindowSizePreset(ui::WindowSizePreset preset) {
                 preset,
                 false,
                 ui_state_.cpu_visible,
-                ui_state_.gpu_visible));
+                ui_state_.gpu_visible,
+                ui_state_.memory_visible));
         expansion_state_.anchor_monitor = ComponentRailMonitor(expansion_state_.original_collapsed_rect);
         ResizeExpandedFromCollapsedRect(expansion_state_.original_collapsed_rect);
     } else {
@@ -666,7 +678,8 @@ void MainWindow::ResetWindowPosition() {
                 ui_state_.window_size,
                 false,
                 ui_state_.cpu_visible,
-                ui_state_.gpu_visible))};
+                ui_state_.gpu_visible,
+                ui_state_.memory_visible))};
         expansion_state_.anchor_monitor = monitor;
         ResizeExpandedFromCollapsedRect(expansion_state_.original_collapsed_rect);
     } else {
@@ -712,6 +725,7 @@ void MainWindow::StartSampler() {
 
     sampler_->AddProvider(std::make_unique<monitoring::CpuProvider>());
     sampler_->AddProvider(std::make_unique<monitoring::NvidiaGpuProvider>());
+    sampler_->AddProvider(std::make_unique<monitoring::MemoryProvider>());
     sampler_->Start();
 }
 
@@ -759,8 +773,8 @@ void MainWindow::ShowContextMenu(POINT screen_point) {
         kAlwaysOnTopMenuId,
         L"Always on top");
 
-    AppendMenuW(opacity_menu, CheckedMenuFlags(settings_.opacity_percent == 60), kOpacity60MenuId, L"60%");
-    AppendMenuW(opacity_menu, CheckedMenuFlags(settings_.opacity_percent == 80), kOpacity80MenuId, L"80%");
+    AppendMenuW(opacity_menu, CheckedMenuFlags(settings_.opacity_percent == 90), kOpacity90MenuId, L"90%");
+    AppendMenuW(opacity_menu, CheckedMenuFlags(settings_.opacity_percent == 95), kOpacity95MenuId, L"95%");
     AppendMenuW(opacity_menu, CheckedMenuFlags(settings_.opacity_percent == 100), kOpacity100MenuId, L"100%");
     AppendMenuW(menu, MF_POPUP, reinterpret_cast<UINT_PTR>(opacity_menu), L"Opacity");
 
@@ -775,6 +789,13 @@ void MainWindow::ShowContextMenu(POINT screen_point) {
         VisibilityMenuFlags(ui_state_.gpu_visible, !ui_state_.gpu_visible || visible_count > 1),
         kShowGpuMenuId,
         L"Show GPU");
+    AppendMenuW(
+        visibility_menu,
+        VisibilityMenuFlags(
+            ui_state_.memory_visible,
+            !ui_state_.memory_visible || visible_count > 1),
+        kShowMemoryMenuId,
+        L"Show Memory");
     AppendMenuW(menu, MF_POPUP, reinterpret_cast<UINT_PTR>(visibility_menu), L"Components");
 
     AppendMenuW(size_menu, CheckedMenuFlags(ui_state_.window_size == ui::WindowSizePreset::Small), kWindowSmallMenuId, L"Small");
@@ -816,12 +837,12 @@ void MainWindow::HandleContextMenuCommand(UINT command) {
         SaveSettings();
         break;
 
-    case kOpacity60MenuId:
-    case kOpacity80MenuId:
+    case kOpacity90MenuId:
+    case kOpacity95MenuId:
     case kOpacity100MenuId:
-        settings_.opacity_percent = command == kOpacity60MenuId
-            ? 60
-            : (command == kOpacity80MenuId ? 80 : 100);
+        settings_.opacity_percent = command == kOpacity90MenuId
+            ? 90
+            : (command == kOpacity95MenuId ? 95 : 100);
         ApplyOpacity();
         SaveSettings();
         break;
@@ -832,6 +853,10 @@ void MainWindow::HandleContextMenuCommand(UINT command) {
 
     case kShowGpuMenuId:
         ToggleComponentVisibility(ui::Component::Gpu);
+        break;
+
+    case kShowMemoryMenuId:
+        ToggleComponentVisibility(ui::Component::Memory);
         break;
 
     case kWindowSmallMenuId:

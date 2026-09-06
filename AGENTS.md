@@ -4,7 +4,7 @@
 
 Performance Monitor is a lightweight native Windows 11 desktop widget for at-a-glance system monitoring.
 
-The application is implemented in C++20 with Win32, Direct2D, and DirectWrite. It currently monitors CPU and NVIDIA GPU activity, retains short bounded histories for rendering, and exposes a compact component rail with expandable detail views.
+The application is implemented in C++20 with Win32, Direct2D, and DirectWrite. It currently monitors CPU, NVIDIA GPU, and physical-memory activity, retains short bounded histories for rendering, and exposes a compact component rail with expandable detail views.
 
 Preserve the native Windows architecture unless a task explicitly requests an architectural change. Do not introduce a cross-platform GUI framework, browser-based UI, managed runtime, or other application framework merely to simplify an implementation.
 
@@ -80,7 +80,7 @@ Important directories and responsibilities:
 ```text
 src/app/         Win32 application lifecycle, MainWindow, persistent settings
 src/model/       Metric state, samples, history buffers, snapshots
-src/monitoring/  CPU/GPU providers, sampler, cross-thread sample handoff
+src/monitoring/  CPU/GPU/memory providers, sampler, cross-thread sample handoff
 src/ui/          Layout, graphs, Direct2D/DirectWrite rendering, UI state
 resources/       Icon, manifest, version/resource metadata
 tests/           Lightweight unit/model tests

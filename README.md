@@ -1,10 +1,10 @@
 # Windows 11 Performance Monitor
 
-A simple performance monitor for Windows 11 that displays CPU, GPU, RAM, and Disk usage in a small overlay window.
+A simple performance monitor for Windows 11 that displays CPU, NVIDIA GPU, and memory usage in a small overlay window.
 
 ## Build Instructions
 
-Requirements: Windows 11, CMake, Nvidia GPU (only)
+Requirements: Windows 11 and CMake. NVIDIA GPU monitoring is optional.
 
 ```bash
 cmake --preset windows-vs2022
