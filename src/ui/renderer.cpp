@@ -748,29 +748,24 @@ void Renderer::DrawGpuDetail(
             1.0F});
     render_target_->DrawRectangle(vram_graph, separator_brush_.Get(), 1.0F);
 
-    const float stat_width = (right - left - (stat_gap * 4.0F)) / 5.0F;
+    const float stat_width = (right - left - (stat_gap * 3.0F)) / 4.0F;
 
     DrawCompactStat(
         D2D1::RectF(left, stat_top, left + stat_width, stat_bottom),
-        L"Utilization",
-        FormatPercentage(performance.gpu_total.latest));
-    DrawCompactStat(
-        D2D1::RectF(left + stat_width + stat_gap, stat_top,
-                    left + (stat_width * 2.0F) + stat_gap, stat_bottom),
         L"VRAM",
         FormatVram(performance.gpu_info));
     DrawCompactStat(
-        D2D1::RectF(left + (stat_width * 2.0F) + (stat_gap * 2.0F), stat_top,
-                    left + (stat_width * 3.0F) + (stat_gap * 2.0F), stat_bottom),
+        D2D1::RectF(left + stat_width + stat_gap, stat_top,
+                    left + (stat_width * 2.0F) + stat_gap, stat_bottom),
         L"Temperature",
         FormatTemperature(performance.gpu_info.temperature_c));
     DrawCompactStat(
-        D2D1::RectF(left + (stat_width * 3.0F) + (stat_gap * 3.0F), stat_top,
-                    left + (stat_width * 4.0F) + (stat_gap * 3.0F), stat_bottom),
+        D2D1::RectF(left + (stat_width * 2.0F) + (stat_gap * 2.0F), stat_top,
+                    left + (stat_width * 3.0F) + (stat_gap * 2.0F), stat_bottom),
         L"Power",
         FormatPower(performance.gpu_info.power_w));
     DrawCompactStat(
-        D2D1::RectF(left + (stat_width * 4.0F) + (stat_gap * 4.0F), stat_top,
+        D2D1::RectF(left + (stat_width * 3.0F) + (stat_gap * 3.0F), stat_top,
                     right, stat_bottom),
         L"GPU clock",
         FormatMegahertz(performance.gpu_info.graphics_clock_mhz));
